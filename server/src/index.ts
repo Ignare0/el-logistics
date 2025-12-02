@@ -3,7 +3,7 @@ import express from 'express';
 import cors from 'cors';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
-import orderRoutes from "./src/routes/orderRoutes";
+import orderRoutes from "./routes/orderRoutes";
 
 const app = express();
 const httpServer = createServer(app);
@@ -24,7 +24,13 @@ const io = new Server(httpServer, {
         methods: ["GET", "POST"]
     }
 });
-
+//测试前端是否连接成功
+io.on('connection', (socket) => {
+    console.log("有一位客户端连接了 Socket:",socket.id);
+    socket.on('disconnect', () => {
+        console.log("客户端断开了:", socket.id);
+    })
+})
 // 3. 基础路由
 app.get('/', (req, res) => {
     res.send('Logistics Backend is Running!');
