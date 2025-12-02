@@ -24,7 +24,7 @@ export default function MapContainer({ startPoint, endPoint }: Props) {
             version: '2.0',
             plugins: ['AMap.Driving'], // 加载驾车规划插件
         })
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
             .then((AMap) => {
                 // 初始化地图
                 const map = new AMap.Map('map-container', {
@@ -78,7 +78,8 @@ export default function MapContainer({ startPoint, endPoint }: Props) {
                 mapRef.current.destroy();
             }
         };
-    }, []);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);// 保持空数组，确保地图只加载一次
 
     // 必须给 div 一个高度，否则地图看不见
     return <div id="map-container" style={{ width: '100%', height: '100vh' }} />;
