@@ -3,17 +3,21 @@ import express from 'express';
 import cors from 'cors';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
+import orderRoutes from "./src/routes/orderRoutes";
 
 const app = express();
 const httpServer = createServer(app);
 
-// 1. 配置 CORS (允许前端跨域)
+// 配置 CORS (允许前端跨域)
 app.use(cors({
     origin: "*", // 生产环境要改成具体的域名
     methods: ["GET", "POST"]
 }));
+app.use(express.json());
 
-// 2. 初始化 Socket.io
+//注册路由
+app.use('/api/orders', orderRoutes);
+//初始化 Socket.io
 const io = new Server(httpServer, {
     cors: {
         origin: "*",
