@@ -1,7 +1,11 @@
+// server/src/types/order.ts
+
+import { LogisticsNode } from '../domain/Node';
+
 export enum OrderStatus {
-    PENDING = 'pending',     // 待发货
-    SHIPPING = 'shipping',   // 运输中
-    DELIVERED = 'delivered'  // 已送达
+    PENDING = 'pending',
+    SHIPPING = 'shipping',
+    DELIVERED = 'delivered'
 }
 
 export interface Order {
@@ -14,7 +18,15 @@ export interface Order {
     amount: number;
     createdAt: string;
     status: OrderStatus;
+
     logistics?: {
+        startNodeId?: string;
+        endNodeId?: string;
+
+        plannedRoute?: LogisticsNode[];
+
+        currentNodeIndex?: number;
+        // 兼容旧字段
         startLat: number;
         startLng: number;
         endLat: number;

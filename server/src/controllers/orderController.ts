@@ -1,32 +1,42 @@
 import { Request, Response } from 'express';
-import { success } from '../utils/response';
+import {error, success} from '../utils/response';
 import { Order, OrderStatus } from '../types/order';
 import {startSimulation} from "../utils/simulator";
-import {Server} from "socket.io";
+import {planLogisticsRoute} from  '../services/logisticsService';
+import { NODES } from '../mock/nodes';
 // --- 模拟数据库 (Mock DB) ---
 // 注意：每次重启服务器，数据会重置
 const orders: Order[] = [
     {
         id: 'ORDER_001',
-        customer: { name: '张三', phone: '13800138000', address: '北京市朝阳区大悦城' },
+        customer: { name: '张三', phone: '13800138000', address: '长春一汽家属院' },
         amount: 299.00,
         createdAt: '2023-10-01 10:00:00',
         status: OrderStatus.PENDING, // 待发货
         logistics: {
-            startLat: 39.9042, startLng: 116.4074, // 北京
-            endLat: 31.2304, endLng: 121.4737      // 上海
+            startNodeId: 'WH_SH_QINGPU', // 上海青浦仓
+            endNodeId: 'ADDR_CC_FAW',    // 长春一汽
+            startLat: NODES['WH_SH_QINGPU'].location.lat,
+            startLng: NODES['WH_SH_QINGPU'].location.lng,
+
+            endLat: NODES['ADDR_CC_FAW'].location.lat,
+            endLng: NODES['ADDR_CC_FAW'].location.lng,
         }
     },
     {
         id: 'ORDER_002',
-        customer: { name: '李四', phone: '13900139000', address: '上海市浦东新区' },
+        customer: { name: '李四', phone: '13900139000', address: '武汉大学' },
         amount: 99.50,
         createdAt: '2023-10-01 12:30:00',
-        status: OrderStatus.SHIPPING, // 运输中
+        status: OrderStatus.SHIPPING,
         logistics: {
-            startLat: 39.9042, startLng: 116.4074,
-            endLat: 31.2304, endLng: 121.4737,
-            currentLat: 34.0000, currentLng: 118.0000 // 假设走到中间了
+            startNodeId: 'WH_GZ_BAIYUN', // 广州仓
+            endNodeId: 'ADDR_WH_UNIV',   // 武大
+
+            startLat: NODES['WH_GZ_BAIYUN'].location.lat,
+            startLng: NODES['WH_GZ_BAIYUN'].location.lng,
+            endLat: NODES['ADDR_WH_UNIV'].location.lat,
+            endLng: NODES['ADDR_WH_UNIV'].location.lng,
         }
     }
 ];
@@ -63,15 +73,30 @@ export const shipOrder = (req: Request, res: Response) => {
     if (order.status !== OrderStatus.PENDING) {
         return res.status(400).json({ code: 400, msg: '订单状态不正确，无法发货', data: null });
     }
+    // 计算真实物流路径
+    if (order.logistics?.startNodeId && order.logistics?.endNodeId) {
+        try {
+            // 调用我们刚才测试过的服务
+            const route = planLogisticsRoute(
+                order.logistics.startNodeId,
+                order.logistics.endNodeId
+            );
+            // 将计算出的路径存入订单对象，供模拟器使用
+            order.logistics.plannedRoute = route;
+            console.log(`✅ 路径规划成功: ${route.map(n => n.name).join(' -> ')}`);
+        } catch (e) {
+            console.error('路径规划失败', e);
+            return res.status(500).json(error('路径规划失败，请检查节点配置'));
+        }
+    } else {
+        return res.status(400).json(error('订单缺少起终点 NodeID'));
+    }
 
-    // 1. 修改状态
     order.status = OrderStatus.SHIPPING;
 
-    //获取socketio实例并启动模拟
-    const io = req.app.get('socketio') as Server;
-    startSimulation(io,order);
-    // 2. TODO: 这里未来会触发“轨迹模拟” (Phase 5)
-    console.log(`🚚 订单 ${id} 已发货，模拟轨迹已经启动...`);
+    //启动新版模拟器
+    const io = req.app.get('socketio');
+    startSimulation(io, order);
 
     res.json(success(order, '发货成功'));
 };
