@@ -3,7 +3,7 @@
 import { Server } from 'socket.io';
 import { Order } from '../types/order';
 import { LogisticsNode } from '../domain/Node';
-import { getTransportMode, getStatusDescription } from './transportMode';
+import { getTransportMode, getStatusDescription,getSegmentConfig } from './transportMode';
 import { fetchDrivingRoute } from './amapService';
 
 // 存储全局定时器，防止冲突
@@ -68,6 +68,10 @@ export const startSimulation = async (io: Server, order: Order) => {
         const mode = getTransportMode(currentNode, nextNode);
         const statusText = getStatusDescription(mode, currentNode.name, nextNode.name);
 
+        // 🔥 获取当前路段的 视口/速度 配置
+        const config = getSegmentConfig(currentNode, nextNode);
+
+        console.log(`>>> 运输段: ${mode}, Zoom: ${config.zoom}, Step: ${config.stepSize}`);
         console.log(`>>> 开始运输: ${currentNode.name} -> ${nextNode.name} (${mode})`);
 
         // 3. 获取路径点 (GPS Points)
@@ -82,39 +86,29 @@ export const startSimulation = async (io: Server, order: Order) => {
             );
         } else {
             // 空运：计算直线插值
-            routePoints = calculateAirRoute(currentNode, nextNode);
+            routePoints = calculateAirRoute(currentNode, nextNode,100);
         }
 
         // 4. 开始移动 (逐点推送)
-        // 陆运慢一点(100ms/点)，空运快一点(50ms/点)
-        const speed = mode === 'ROAD' ? 100 : 50;
 
-        // 采样率：如果点太多，跳着走，防止演示太慢
-        const stepSize = routePoints.length > 500 ? 5 : 1;
 
-        for (let j = 0; j < routePoints.length; j += stepSize) {
+        for (let j = 0; j < routePoints.length; j += config.stepSize) {
             if (!activeTimers.get(id)) break;
 
             const [lng, lat] = routePoints[j];
 
-            // 计算简单的车头角度 (可选)
-            let angle = 0;
-            if (j + stepSize < routePoints.length) {
-                const [nextLng, nextLat] = routePoints[j + stepSize];
-                angle = Math.atan2(nextLat - lat, nextLng - lng) * 180 / Math.PI;
-            }
 
             io.emit('position_update', {
                 orderId: id,
                 lat: lat,
                 lng: lng,
-                angle: angle,
                 transport: mode, // 告诉前端是飞机还是车
                 status: 'shipping',
-                statusText: statusText
+                statusText: statusText,
+                zoom: config.zoom
             });
 
-            await wait(speed);
+            await wait(config.speed);
         }
     }
 

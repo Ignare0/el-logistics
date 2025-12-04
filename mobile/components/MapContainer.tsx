@@ -13,6 +13,8 @@ export default function MapContainer({ startPoint, endPoint, orderId }: Props) {
     const [mapInstance,setMapInstance]=useState<any>(null);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const carMarkerRef = useRef<any>(null);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const dashPolylineRef = useRef<any>(null);
 
     const socketRef=useRef<Socket| null>(null);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -20,6 +22,15 @@ export default function MapContainer({ startPoint, endPoint, orderId }: Props) {
     const pathRef = useRef<Array<[number, number]>>([]); // 存储路径点数据
 
     const [statusText, setStatusText] = useState<string>("等待物流更新...");
+    const [isAutoFollow, setIsAutoFollow] = useState(true);
+    // 用 ref 存一份最新的状态，供 socket 回调内部判断使用
+    const isAutoFollowRef = useRef(true);
+
+    // 辅助函数：切换跟随状态
+    const toggleFollow = (state: boolean) => {
+        setIsAutoFollow(state);
+        isAutoFollowRef.current = state;
+    };
 
     // Effect 1: 初始化地图 (只执行一次，依赖为空 [])
     useEffect(() => {
@@ -68,6 +79,7 @@ export default function MapContainer({ startPoint, endPoint, orderId }: Props) {
                     geodesic: true,//弧线
                 });
                 map.add(dashPolyline);
+                dashPolylineRef.current = dashPolyline;
 
                 //初始化“已经走过的路径”
                 const passedPolyline = new AMap.Polyline({
@@ -125,23 +137,37 @@ export default function MapContainer({ startPoint, endPoint, orderId }: Props) {
             if (data.orderId === orderId && carMarkerRef.current) {
                 const nextPos: [number, number] = [data.lng, data.lat];
 
-                // 1. 小车移动动画
+                // 移动动画
                 carMarkerRef.current.moveTo(nextPos, {
-                    duration: 0,
+                    duration: 200,//配合后端默认速度，或者让后端传 speed 字段过来
                     autoRotation: false,
                 });
 
-                // 2. 核心逻辑：动态画出轨迹线
+                //动态画出轨迹线
                 // 将新坐标加入路径数组
                 pathRef.current.push(nextPos);
                 // 更新地图上的线
                 passedPolylineRef.current.setPath(pathRef.current);
 
-                // (可选) 视角跟随：如果希望地图一直跟着车走
-                mapInstance.setCenter(nextPos);
+                const targetZoom = data.zoom || 10;
+                const currentZoom = mapInstance.getZoom();
+
+                // 只有当 Zoom 差距大时才缩放，否则只平移 (保持视觉稳定)
+                if (Math.abs(currentZoom - targetZoom) > 2) {
+                    mapInstance.setZoomAndCenter(targetZoom, nextPos, false, 1000);
+                } else {
+                    mapInstance.panTo(nextPos);
+                }
                 // 如果有状态文字，传给父组件
                 if (data.statusText) {
                     setStatusText(data.statusText);
+                }
+
+                if(data.status=='delivered'){
+                    if(dashPolylineRef.current) {
+                        dashPolylineRef.current.setMap(null);
+                    }
+                    toggleFollow(false);
                 }
             }
         });
@@ -152,10 +178,18 @@ export default function MapContainer({ startPoint, endPoint, orderId }: Props) {
 
     }, [mapInstance,orderId]);// 只要地图好了，或者换了订单号，就重新运行 Socket 逻辑
 
+    // 手动点击“重新跟随”
+    const handleReCenter = () => {
+        if (!carMarkerRef.current || !mapInstance) return;
+        const currentPos = carMarkerRef.current.getPosition();
+        mapInstance.panTo(currentPos);
+        mapInstance.setZoom(12); // 重置到一个合理的层级
+        toggleFollow(true);
+    };
 
     return (
         <div className="relative w-full h-full">
-            {/* 悬浮状态条：绝对定位显示在地图上方 */}
+            {/* 状态条 */}
             <div className="absolute top-20 left-4 right-4 z-50 pointer-events-none">
                 <div className="bg-white/90 backdrop-blur-md p-3 rounded-xl shadow-lg border border-blue-100 text-center animate-fade-in">
                     <p className="text-blue-700 font-bold text-sm">
@@ -164,7 +198,6 @@ export default function MapContainer({ startPoint, endPoint, orderId }: Props) {
                 </div>
             </div>
 
-            {/* 地图容器 */}
             <div id="map-container" style={{ width: '100%', height: '100vh' }} />
         </div>
     );
