@@ -30,7 +30,7 @@ export const getSegmentConfig = (from: LogisticsNode, to: LogisticsNode): Segmen
     if (to.type === 'ADDRESS') {
         return {
             zoom: 16,       // 街道级视角 (看得很清)
-            speed: 200,     // 慢速移动 (200ms走一步，很丝滑)
+            speed: 100,
             stepSize: 1     // 不跳点 (保留所有细节)
         };
     }
@@ -47,7 +47,7 @@ export const getSegmentConfig = (from: LogisticsNode, to: LogisticsNode): Segmen
     // 3. 城市接驳 (City Transfer): 网点 <-> 分拨 <-> 枢纽
     return {
         zoom: 11,       // 城市级视角
-        speed: 100,     // 中速
-        stepSize: 3     // 中等精度
+        speed: 50,     // 中速
+        stepSize: 1
     };
 };
