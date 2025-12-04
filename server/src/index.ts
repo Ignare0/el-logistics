@@ -15,8 +15,7 @@ app.use(cors({
 }));
 app.use(express.json());
 
-//注册路由
-app.use('/api/orders', orderRoutes);
+
 //初始化 Socket.io
 const io = new Server(httpServer, {
     cors: {
@@ -31,6 +30,10 @@ io.on('connection', (socket) => {
         console.log("客户端断开了:", socket.id);
     })
 })
+
+app.set('socketio', io);
+//注册路由
+app.use('/api/orders', orderRoutes);
 // 3. 基础路由
 app.get('/', (req, res) => {
     res.send('Logistics Backend is Running!');

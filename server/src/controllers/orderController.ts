@@ -1,7 +1,8 @@
 import { Request, Response } from 'express';
 import { success } from '../utils/response';
 import { Order, OrderStatus } from '../types/order';
-
+import {startSimulation} from "../utils/simulator";
+import {Server} from "socket.io";
 // --- 模拟数据库 (Mock DB) ---
 // 注意：每次重启服务器，数据会重置
 const orders: Order[] = [
@@ -66,8 +67,11 @@ export const shipOrder = (req: Request, res: Response) => {
     // 1. 修改状态
     order.status = OrderStatus.SHIPPING;
 
+    //获取socketio实例并启动模拟
+    const io = req.app.get('socketio') as Server;
+    startSimulation(io,order);
     // 2. TODO: 这里未来会触发“轨迹模拟” (Phase 5)
-    console.log(`🚚 订单 ${id} 已发货，准备开始模拟轨迹...`);
+    console.log(`🚚 订单 ${id} 已发货，模拟轨迹已经启动...`);
 
     res.json(success(order, '发货成功'));
 };
