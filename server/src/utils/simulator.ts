@@ -105,7 +105,8 @@ export const startSimulation = async (io: Server, order: Order) => {
                 transport: mode, // 告诉前端是飞机还是车
                 status: 'shipping',
                 statusText: statusText,
-                zoom: config.zoom
+                zoom: config.zoom,
+                speed: config.speed
             });
 
             await wait(config.speed);

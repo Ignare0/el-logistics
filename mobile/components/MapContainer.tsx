@@ -126,7 +126,26 @@ export default function MapContainer({ startPoint, endPoint, orderId }: Props) {
                 zIndex: 100, // 让车在最上层
             });
             // 初始化路径数组
-            pathRef.current = [startPoint];
+            pathRef.current = [startPoint]
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            // 核心逻辑 A：实时画线 (织布机效果)
+            carMarkerRef.current.on('moving', (e: any) => {
+                // 获取小车当前的实时位置 (动画过程中的插值)
+                const currentPos = e.target.getPosition();
+
+                // 视觉上的线 = 已经确认的历史路径 + 当前车头所在的位置
+                passedPolylineRef.current.setPath([
+                    ...pathRef.current,
+                    [currentPos.lng, currentPos.lat]
+                ]);
+            });
+
+            // 核心逻辑 B：到达后“固化”路径
+            carMarkerRef.current.on('moveend', () => {
+                // 只有当动画真正跑完了，才把这个点加入“历史档案”
+                const finalPos = carMarkerRef.current.getPosition();
+                pathRef.current.push([finalPos.lng, finalPos.lat]);
+            });
         }
         socketRef.current = io('http://localhost:4000');//连接后端
         socketRef.current.on('connect',()=>{
@@ -137,17 +156,15 @@ export default function MapContainer({ startPoint, endPoint, orderId }: Props) {
             if (data.orderId === orderId && carMarkerRef.current) {
                 const nextPos: [number, number] = [data.lng, data.lat];
 
+                const moveDuration = data.speed ? data.speed * 1.1 : 200;
                 // 移动动画
                 carMarkerRef.current.moveTo(nextPos, {
-                    duration: 200,//配合后端默认速度，或者让后端传 speed 字段过来
+                    duration: moveDuration,
                     autoRotation: false,
                 });
 
                 //动态画出轨迹线
-                // 将新坐标加入路径数组
-                pathRef.current.push(nextPos);
-                // 更新地图上的线
-                passedPolylineRef.current.setPath(pathRef.current);
+
 
                 const targetZoom = data.zoom || 10;
                 const currentZoom = mapInstance.getZoom();
