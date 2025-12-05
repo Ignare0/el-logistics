@@ -3,6 +3,37 @@ import axios from 'axios';
 
 const AMAP_KEY = '9ed0e07b10c4a6c7516db4f0b3f01d3f';
 
+// 获取骑行路径 (用于末端派送)
+export const fetchRidingRoute = async (
+    startLat: number, startLng: number,
+    endLat: number, endLng: number
+): Promise<[number, number][]> => {
+    const url = `https://restapi.amap.com/v4/direction/bicycling?origin=${startLng},${startLat}&destination=${endLng},${endLat}&key=${AMAP_KEY}`;
+
+    try {
+        const res = await axios.get(url);
+        if (res.data.errcode === 0 && res.data.data.paths.length > 0) {
+            const path = res.data.data.paths[0];
+            const routePoints: [number, number][] = [];
+
+            // 解析 steps
+            path.steps.forEach((step: any) => {
+                const polyline = step.polyline; // "116.4,39.9;116.5,39.9"
+                const points = polyline.split(';').map((p: string) => {
+                    const [lng, lat] = p.split(',');
+                    return [parseFloat(lng), parseFloat(lat)];
+                });
+                routePoints.push(...points);
+            });
+            return routePoints;
+        }
+    } catch (e) {
+        console.error('高德骑行API调用失败', e);
+    }
+    // 降级：如果骑行失败，回退到直线
+    return [[startLng, startLat], [endLng, endLat]];
+};
+
 export const fetchDrivingRoute = async (
     startLat: number,
     startLng: number,

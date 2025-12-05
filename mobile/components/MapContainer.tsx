@@ -15,7 +15,11 @@ export default function MapContainer({ startPoint, endPoint, orderId }: Props) {
     const carMarkerRef = useRef<any>(null);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const dashPolylineRef = useRef<any>(null);
+    // 增加 ref 记录当前的推荐 Zoom，供重置时使用
+    const currentTargetZoomRef = useRef<number>(10)
 
+    // 在组件内部增加一个 ref 记录上一次的模式
+    const lastTransportModeRef = useRef<string | null>(null);
     const socketRef=useRef<Socket| null>(null);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const passedPolylineRef = useRef<any>(null); // 存储“已走过路径”的线
@@ -37,12 +41,12 @@ export default function MapContainer({ startPoint, endPoint, orderId }: Props) {
         // 1. 配置安全密钥 (高德 2.0 必须)
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         (window as any)._AMapSecurityConfig = {
-            securityJsCode: 'cc020d2c00a08999f26892ee1e511658', // 填你的安全密钥
+            securityJsCode: process.env.NEXT_PUBLIC_AMAP_SECURITY_CODE, // 填你的安全密钥
         };
 
         // 2. 加载地图
         AMapLoader.load({
-            key: 'd915d23c5e6a28d1314f232e148a4831',
+            key: process.env.NEXT_PUBLIC_AMAP_KEY,
             version: '2.0',
             plugins: ['AMap.Polyline','AMap.MoveAnimation'],
         })
@@ -95,6 +99,12 @@ export default function MapContainer({ startPoint, endPoint, orderId }: Props) {
                 //地图自适应显示起始和终点
                 map.setFitView([dashPolyline]);
 
+                // 监听地图拖拽，如果用户手动拖动，则停止自动跟随
+                map.on('dragstart', () => {
+                    if (isAutoFollowRef.current) {
+                        toggleFollow(false);
+                    }
+                });
                 setMapInstance(map);
             }).catch(e=> console.error(e));
         return () => {
@@ -124,11 +134,14 @@ export default function MapContainer({ startPoint, endPoint, orderId }: Props) {
                 }),
                 offset: new AMap.Pixel(-26, -13),
                 zIndex: 100, // 让车在最上层
+                clickable: false,   // 设置为不可点击，这样就不会触发 pointer 事件
+                cursor: 'default',  // 强制鼠标样式为默认箭头，不变成手指
+                bubble: true,       // 允许事件穿透到地图底图（可选，方便拖拽地图）
             });
             // 初始化路径数组
             pathRef.current = [startPoint]
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             // 核心逻辑 A：实时画线 (织布机效果)
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             carMarkerRef.current.on('moving', (e: any) => {
                 // 获取小车当前的实时位置 (动画过程中的插值)
                 const currentPos = e.target.getPosition();
@@ -163,17 +176,29 @@ export default function MapContainer({ startPoint, endPoint, orderId }: Props) {
                     autoRotation: false,
                 });
 
+                // 记录后端推荐的 Zoom (供重置使用)
+                if (data.zoom) {
+                    currentTargetZoomRef.current = data.zoom;
+                }
                 //动态画出轨迹线
 
+                //只应该在“运输模式改变”（比如从空运变成陆运）的那一瞬间调整 Zoom，其余时间应该允许用户自由缩放，只跟随位置，不强制重置 Zoom
 
-                const targetZoom = data.zoom || 10;
-                const currentZoom = mapInstance.getZoom();
+                if (isAutoFollowRef.current) {
+                    const currentMode = data.transport;
+                    const targetZoom = data.zoom || 10;
+                    const currentZoom = mapInstance.getZoom();
 
-                // 只有当 Zoom 差距大时才缩放，否则只平移 (保持视觉稳定)
-                if (Math.abs(currentZoom - targetZoom) > 2) {
-                    mapInstance.setZoomAndCenter(targetZoom, nextPos, false, 1000);
-                } else {
-                    mapInstance.panTo(nextPos);
+                    // 只有模式切换时，才大幅度缩放，否则只平移
+                    if (currentMode !== lastTransportModeRef.current) {
+                        console.log(`模式切换: ${lastTransportModeRef.current} -> ${currentMode}, 缩放至 ${targetZoom}`);
+                        mapInstance.setZoomAndCenter(targetZoom, nextPos, false, 1000);
+                        lastTransportModeRef.current = currentMode;
+                    } else {
+                        // 同一模式下，只平移，允许用户微调 Zoom
+                        mapInstance.panTo(nextPos);
+                        // 如果 Zoom 差距实在太大（比如用户不小心缩很小），也可以纠正，但这里先不做，给用户自由
+                    }
                 }
                 // 如果有状态文字，传给父组件
                 if (data.statusText) {
@@ -195,14 +220,8 @@ export default function MapContainer({ startPoint, endPoint, orderId }: Props) {
 
     }, [mapInstance,orderId]);// 只要地图好了，或者换了订单号，就重新运行 Socket 逻辑
 
-    // 手动点击“重新跟随”
-    const handleReCenter = () => {
-        if (!carMarkerRef.current || !mapInstance) return;
-        const currentPos = carMarkerRef.current.getPosition();
-        mapInstance.panTo(currentPos);
-        mapInstance.setZoom(12); // 重置到一个合理的层级
-        toggleFollow(true);
-    };
+
+
 
     return (
         <div className="relative w-full h-full">

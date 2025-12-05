@@ -4,7 +4,7 @@ import { Server } from 'socket.io';
 import { Order } from '../types/order';
 import { LogisticsNode } from '../domain/Node';
 import { getTransportMode, getStatusDescription,getSegmentConfig } from './transportMode';
-import { fetchDrivingRoute } from './amapService';
+import { fetchDrivingRoute, fetchRidingRoute } from './amapService';
 
 // 存储全局定时器，防止冲突
 const activeTimers = new Map<string, boolean>(); // key: orderId, value: isRunning
@@ -77,14 +77,22 @@ export const startSimulation = async (io: Server, order: Order) => {
         // 3. 获取路径点 (GPS Points)
         let routePoints: [number, number][] = [];
 
-        if (mode === 'ROAD') {
+        if (mode === 'TRUNK') {
             // 陆运：调用高德 API 获取真实弯道路径
             // 注意：amapService 返回的是 [lng, lat] 数组
             routePoints = await fetchDrivingRoute(
                 currentNode.location.lat, currentNode.location.lng,
                 nextNode.location.lat, nextNode.location.lng
             );
-        } else {
+        } else if(mode === 'DELIVERY'){
+            console.log(`🛵 调用骑行规划: ${currentNode.name} -> ${nextNode.name}`);
+            routePoints = await fetchRidingRoute(
+                currentNode.location.lat, currentNode.location.lng,
+                nextNode.location.lat, nextNode.location.lng
+            );
+        }
+
+        else {
             // 空运：计算直线插值
             routePoints = calculateAirRoute(currentNode, nextNode,100);
         }
@@ -102,7 +110,7 @@ export const startSimulation = async (io: Server, order: Order) => {
                 orderId: id,
                 lat: lat,
                 lng: lng,
-                transport: mode, // 告诉前端是飞机还是车
+                transport: mode,
                 status: 'shipping',
                 statusText: statusText,
                 zoom: config.zoom,
