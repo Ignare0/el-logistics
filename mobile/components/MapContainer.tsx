@@ -46,7 +46,7 @@ export default function MapContainer({ startPoint, endPoint, orderId }: Props) {
 
         // 2. 加载地图
         AMapLoader.load({
-            key: process.env.NEXT_PUBLIC_AMAP_KEY,
+            key: process.env.NEXT_PUBLIC_AMAP_KEY||'',
             version: '2.0',
             plugins: ['AMap.Polyline','AMap.MoveAnimation'],
         })
