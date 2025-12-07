@@ -1,13 +1,16 @@
-import { Order, OrderStatus } from '@el/types';
+import { Order, OrderStatus, TimelineEvent } from '@el/types';
 import { LogisticsNode } from '../domain/Node';
 
 // 继承共享的 Order
 export interface ServerOrder extends Order {
-    // 这里使用了 TypeScript 的交叉类型
     logistics: Order['logistics'] & {
-        // 标记为可选 (?)，这样 mock 数据里不写这个字段也不会报错
+        // 增加这两个字段，用于记录当前实时位置
+        // 这样前端刷新页面时，可以从这里读取最新位置，而不是从头开始
+        currentLat?: number;
+        currentLng?: number;
+
+        // 路径规划数据
         plannedRoute?: LogisticsNode[];
-        currentNodeIndex?: number;
     };
 }
 

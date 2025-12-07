@@ -1,21 +1,26 @@
 // packages/types/index.ts
+
 export interface TimelineEvent {
-    status: string;         // 状态标题，如 "已揽收", "运输中"
-    description: string;    // 详细描述，如 "快件离开【北京转运中心】..."
-    timestamp: string;      // ISO 时间
-    location?: string;      // 当前地点
-}
-export enum OrderStatus {
-    PENDING = 'pending',
-    SHIPPING = 'shipping',
-    DELIVERED = 'delivered',
-    EXCEPTION = 'exception'
+    status: string;         // 例如 "shipping", "arrived_node"
+    description: string;    // 例如 "已到达【上海转运中心】"
+    timestamp: string;      // ISO 时间字符串
+    location?: string;      // 可选，记录地点
 }
 
+export enum OrderStatus {
+    PENDING = 'pending',       // 待发货
+    SHIPPING = 'shipping',     // 运输中
+    DELIVERED = 'delivered',   // 已送达（车到了）
+    COMPLETED = 'completed',   // 已完成（用户确认收货）
+    EXCEPTION = 'exception'    // 异常
+}
+
+// 状态对应的 UI 展示配置（颜色、文案）
 export const OrderStatusMap: Record<OrderStatus, { text: string; color: string }> = {
     [OrderStatus.PENDING]: { text: '待发货', color: 'orange' },
     [OrderStatus.SHIPPING]: { text: '运输中', color: 'blue' },
     [OrderStatus.DELIVERED]: { text: '已送达', color: 'green' },
+    [OrderStatus.COMPLETED]: { text: '已完成', color: 'gray' }, // 新增
     [OrderStatus.EXCEPTION]: { text: '异常', color: 'red' }
 };
 
@@ -29,19 +34,18 @@ export interface Order {
     amount: number;
     createdAt: string;
     status: OrderStatus;
-
     eta?: string;
 
+    // 这里的类型必须和上面定义的一致
     timeline: TimelineEvent[];
+
     logistics: {
         startNodeId?: string;
         endNodeId?: string;
-
         startLat: number;
         startLng: number;
         endLat: number;
         endLng: number;
-
         currentLat?: number;
         currentLng?: number;
     };
@@ -53,6 +57,7 @@ export interface ApiResponse<T> {
     data: T;
 }
 
+// Socket 推送的数据结构
 export interface PositionUpdatePayload {
     orderId: string;
     lat: number;
@@ -63,4 +68,5 @@ export interface PositionUpdatePayload {
     zoom?: number;
     speed?: number;
     resetView?: boolean;
+    timestamp?: string; // 最好加上这个，方便前端展示
 }
