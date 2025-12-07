@@ -1,0 +1,3 @@
+packages:
+  - 'apps/*'      # 存放 admin, mobile, server
+  - 'packages/*'  # 存放共享代码 (types)
