@@ -2,9 +2,17 @@
 
 import React, { useState } from 'react';
 import { Order, OrderStatus, PositionUpdatePayload } from '@el/types';
-import MapContainer from './MapContainer'; // 注意引用路径，如果你用了 dynamic import 也要对应
+import dynamic from 'next/dynamic';
 import { TrackingHeader } from './TrackingHeader';
 import { TrackingTimeline } from './TrackingTimeline';
+
+const MapContainer = dynamic(
+    () => import('./MapContainer'),
+    {
+        ssr: false, // 关键：禁止服务端渲染此组件
+        loading: () => <div className="w-full h-full bg-gray-100 animate-pulse" /> // 加载时的占位符
+    }
+);
 
 interface Props {
     initialOrder: Order; // 服务器传来的初始数据
