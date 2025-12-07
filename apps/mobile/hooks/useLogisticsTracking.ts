@@ -50,6 +50,7 @@ export const useLogisticsTracking = ({ map, AMap, orderId, startPoint }: Trackin
                 path: [startPoint],
                 strokeColor: '#28F',
                 strokeWeight: 6,
+
             });
             map.add(passedPolylineRef.current);
 

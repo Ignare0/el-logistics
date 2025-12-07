@@ -1,5 +1,10 @@
 // packages/types/index.ts
-
+export interface TimelineEvent {
+    status: string;         // 状态标题，如 "已揽收", "运输中"
+    description: string;    // 详细描述，如 "快件离开【北京转运中心】..."
+    timestamp: string;      // ISO 时间
+    location?: string;      // 当前地点
+}
 export enum OrderStatus {
     PENDING = 'pending',
     SHIPPING = 'shipping',
@@ -25,7 +30,9 @@ export interface Order {
     createdAt: string;
     status: OrderStatus;
 
+    eta?: string;
 
+    timeline: TimelineEvent[];
     logistics: {
         startNodeId?: string;
         endNodeId?: string;
