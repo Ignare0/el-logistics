@@ -5,20 +5,26 @@ import { PositionUpdatePayload } from '@el/types';
 
 interface TrackingOptions {
     map: AMap.Map | null;
-    // ✅ 修复：强类型命名空间
     AMap: AMap.AMapNamespace | null;
     orderId: string;
     startPoint: [number, number];
+    onUpdate?: (data: PositionUpdatePayload) => void;
 }
 
-export const useLogisticsTracking = ({ map, AMap, orderId, startPoint }: TrackingOptions) => {
+export const useLogisticsTracking = ({ map, AMap, orderId, startPoint, onUpdate }: TrackingOptions) => {
     const socketRef = useRef<Socket | null>(null);
-
     const carMarkerRef = useRef<AMap.Marker | null>(null);
     const passedPolylineRef = useRef<AMap.Polyline | null>(null);
     const pathRef = useRef<Array<[number, number]>>([startPoint]);
 
-    const [statusText, setStatusText] = useState("等待物流更新...");
+    // ✅ 修复 1: 使用 ref 来保存回调，防止它触发 useEffect 重启
+    const onUpdateRef = useRef(onUpdate);
+
+    // ✅ 修复 2: 每次组件渲染时，更新 ref 的值为最新的回调函数
+    useEffect(() => {
+        onUpdateRef.current = onUpdate;
+    }, [onUpdate]);
+
     const [isAutoFollow, setIsAutoFollow] = useState(true);
     const isAutoFollowRef = useRef(true);
 
@@ -27,10 +33,11 @@ export const useLogisticsTracking = ({ map, AMap, orderId, startPoint }: Trackin
         isAutoFollowRef.current = state;
     };
 
+    // ✅ 核心 useEffect
     useEffect(() => {
-        // 必须判空
         if (!map || !AMap) return;
 
+        // 初始化 Marker (代码保持不变)
         if (!carMarkerRef.current) {
             carMarkerRef.current = new AMap.Marker({
                 map: map,
@@ -48,15 +55,12 @@ export const useLogisticsTracking = ({ map, AMap, orderId, startPoint }: Trackin
 
             passedPolylineRef.current = new AMap.Polyline({
                 path: [startPoint],
-                strokeColor: '#28F',
+                strokeColor: '#D93F32',
                 strokeWeight: 6,
-
             });
             map.add(passedPolylineRef.current);
 
-            // ✅ 修复：事件类型明确为 Marker 的事件
-            carMarkerRef.current.on('moving', (e: AMap.AMapEvent<AMap.Marker>) => {
-                // e.target 就是 Marker 实例
+            carMarkerRef.current.on('moving', (e: any) => {
                 const currentPos = e.target.getPosition();
                 if (passedPolylineRef.current) {
                     passedPolylineRef.current.setPath([
@@ -65,7 +69,6 @@ export const useLogisticsTracking = ({ map, AMap, orderId, startPoint }: Trackin
                     ]);
                 }
             });
-
             carMarkerRef.current.on('moveend', () => {
                 const finalPos = carMarkerRef.current?.getPosition();
                 if (finalPos) pathRef.current.push([finalPos.lng, finalPos.lat]);
@@ -74,42 +77,55 @@ export const useLogisticsTracking = ({ map, AMap, orderId, startPoint }: Trackin
             map.on('dragstart', () => toggleFollow(false));
         }
 
-        socketRef.current = io('http://localhost:4000');
+        // Socket 连接
+        const apiUrl = process.env.NEXT_PUBLIC_API_URL?.replace('/api', '') || 'http://localhost:4000';
+        // 避免重复连接
+        if (!socketRef.current) {
+            socketRef.current = io(apiUrl);
 
-        socketRef.current.on('position_update', (data: PositionUpdatePayload) => {
-            if (data.orderId !== orderId || !carMarkerRef.current) return;
-
-            const nextPos: [number, number] = [data.lng, data.lat];
-            const moveDuration = data.speed ? data.speed * 1.1 : 200;
-
-            carMarkerRef.current.moveTo(nextPos, {
-                duration: moveDuration,
-                autoRotation: false,
+            socketRef.current.on('connect', () => {
+                console.log("✅ Socket Connected");
             });
 
-            if (data.resetView) {
-                toggleFollow(true);
-                map.setZoomAndCenter(data.zoom || 10, nextPos, false, 1000);
-            } else if (isAutoFollowRef.current) {
-                map.panTo(nextPos);
-            }
+            socketRef.current.on('position_update', (data: PositionUpdatePayload) => {
+                if (data.orderId !== orderId) return;
 
-            if (data.statusText) {
-                setStatusText(data.statusText);
-            }
+                // 1. 移动小车
+                if (carMarkerRef.current) {
+                    const nextPos: [number, number] = [data.lng, data.lat];
+                    carMarkerRef.current.moveTo(nextPos, {
+                        duration: data.speed ? data.speed * 1.1 : 200,
+                        autoRotation: false,
+                    });
 
-            if (data.status === 'delivered') {
-                toggleFollow(false);
-            }
-        });
+                    if (data.resetView) {
+                        toggleFollow(true);
+                        map.setZoomAndCenter(data.zoom || 10, nextPos, false, 1000);
+                    } else if (isAutoFollowRef.current) {
+                        map.panTo(nextPos);
+                    }
+                }
+
+                // 2. ✅ 修复 3: 调用 ref.current，而不是直接调用 props 中的 onUpdate
+                // 这样 useEffect 就不需要依赖 onUpdate 了
+                if (onUpdateRef.current) {
+                    onUpdateRef.current(data);
+                }
+            });
+        }
 
         return () => {
-            if (socketRef.current) socketRef.current.disconnect();
+            // 组件卸载时才断开，或者 orderId 变了才断开
+            if (socketRef.current) {
+                socketRef.current.disconnect();
+                socketRef.current = null;
+            }
         };
-    }, [map, AMap, orderId, startPoint]);
+
+
+    }, [map, AMap, orderId,startPoint.toString()]);
 
     return {
-        statusText,
         isAutoFollow,
         toggleFollow
     };
