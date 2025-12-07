@@ -1,7 +1,7 @@
 // apps/mobile/types/amap.d.ts
 
 /**
- * 高德地图类型定义 (Strict Mode)
+ * 高德地图类型定义 (Strict Mode) - 修正版
  */
 declare namespace AMap {
     // 1. 通用事件对象
@@ -11,11 +11,10 @@ declare namespace AMap {
         [key: string]: unknown;
     }
 
-    // 2. 覆盖物联合类型 (用于 add/remove 等方法)
+    // 2. 覆盖物联合类型
     export type Overlay = Marker | Polyline;
 
-    // 3. 核心命名空间接口 (这就是 AMapLoader 加载回来的东西)
-    // 使用 typeof ClassName 来获取构造函数本身的类型
+    // 3. 核心命名空间接口
     export interface AMapNamespace {
         Map: typeof Map;
         Marker: typeof Marker;
@@ -26,15 +25,25 @@ declare namespace AMap {
         LngLat: typeof LngLat;
     }
 
-    // --- 以下是类定义 ---
+    // --- 类定义 ---
 
     export class Map {
         constructor(container: string | HTMLElement, options?: MapOptions);
         destroy(): void;
         setZoomAndCenter(zoom: number, center: [number, number], immediate?: boolean, duration?: number): void;
         panTo(position: [number, number]): void;
-        setFitView(overlays?: Overlay[]): void; // ✅ 替换 any
-        add(overlay: Overlay | Overlay[]): void; // ✅ 替换 any
+
+        // ✅ 修复 TS2554: 增加 setFitView 的完整参数定义
+        // setFitView(overlays, immediately, avoid, maxZoom)
+        setFitView(
+            overlays?: Overlay[] | null,
+            immediate?: boolean,
+            avoid?: [number, number, number, number],
+            maxZoom?: number
+        ): void;
+
+        add(overlay: Overlay | Overlay[]): void;
+        setMapStyle(style: string): void; // 增加样式设置方法
         on(event: string, callback: (e: AMapEvent<Map>) => void): void;
     }
 
@@ -42,6 +51,7 @@ declare namespace AMap {
         viewMode?: '2D' | '3D';
         zoom?: number;
         center?: [number, number];
+        mapStyle?: string; // 支持初始化样式
     }
 
     export class Marker {
@@ -49,7 +59,6 @@ declare namespace AMap {
         setMap(map: Map | null): void;
         moveTo(position: [number, number], options: { duration: number; autoRotation: boolean }): void;
         getPosition(): LngLat;
-        // ✅ 泛型指定事件 target 是 Marker 实例
         on(event: string, callback: (e: AMapEvent<Marker>) => void): void;
     }
 
@@ -57,12 +66,15 @@ declare namespace AMap {
         map?: Map;
         position: [number, number];
         icon?: Icon;
+        // ✅ 修复 TS2353: 增加 content 属性，支持自定义 HTML 标记
+        content?: string | HTMLElement;
         offset?: Pixel;
         zIndex?: number;
         clickable?: boolean;
         cursor?: string;
         bubble?: boolean;
         title?: string;
+        anchor?: string; // 增加锚点定位
     }
 
     export class Polyline {
@@ -101,10 +113,9 @@ declare namespace AMap {
     }
 }
 
-// 4. 全局 Window 扩展 (解决 window._AMapSecurityConfig 报错)
 interface Window {
     _AMapSecurityConfig: {
         securityJsCode?: string;
     };
-    AMap?: AMap.AMapNamespace; // 可选，某些场景可能会挂载在 window 上
+    AMap?: AMap.AMapNamespace;
 }
