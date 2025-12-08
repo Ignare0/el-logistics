@@ -1,97 +1,74 @@
 'use client';
 
-import React, { useState, useCallback } from 'react';
-import { Order, OrderStatus, PositionUpdatePayload } from '@el/types';
+import React, { useEffect, useCallback } from 'react';
+import { Order, OrderStatus } from '@el/types';
 import dynamic from 'next/dynamic';
-import { confirmOrderReceipt } from '@/utils/api'; // 引入API
-import { getDistance } from 'geolib';
+import useSWR from 'swr';
+import { confirmOrderReceipt, fetcher } from '@/utils/api';
 import { TrackingHeader } from './TrackingHeader';
 import { TrackingTimeline } from './TrackingTimeline';
+import { useOrderStore, useOrderActions } from '@/stores/orderStore'; // ✅ 引入 Zustand store
 
 const MapContainer = dynamic(
     () => import('./MapContainer'),
     {
-        ssr: false, // 关键：禁止服务端渲染此组件
-        loading: () => <div className="w-full h-full bg-gray-100 animate-pulse" /> // 加载时的占位符
+        ssr: false,
+        loading: () => <div className="w-full h-full bg-gray-100 animate-pulse" />
     }
 );
 
 interface Props {
-    initialOrder: Order; // 服务器传来的初始数据
+    initialOrder: Order; // 服务器首次渲染时的数据
 }
 
 export default function TrackingView({ initialOrder }: Props) {
-    // ✅ 核心：使用 state 来管理订单数据，这样数据变了页面才会刷新
-    const [order, setOrder] = useState<Order>(initialOrder);
-    const [distance, setDistance] = useState<string | null>(null);
-    // 处理 Socket 传来的更新
-    const handleOrderUpdate = React.useCallback(
-        (data: PositionUpdatePayload) => {
-            setOrder(prev => {
-                // 深拷贝一份新数据
-                const newOrder = { ...prev };
+    const { id } = initialOrder;
 
-                // 1. 更新实时坐标
-                newOrder.logistics.currentLat = data.lat;
-                newOrder.logistics.currentLng = data.lng;
+    // ✅ 使用 SWR 获取最新的数据，并进行自动刷新
+    // fallbackData 保证了即使客户端请求失败，页面也能展示服务端传来的初始数据
+    const { data: swrOrder, error } = useSWR(`/orders/${id}`, () => fetcher<Order>(`${process.env.NEXT_PUBLIC_API_URL}/orders/${id}`), {
+        fallbackData: initialOrder,
+        refreshInterval: 30000 // 每 30 秒自动刷新一次数据
+    });
 
-                // 2. 如果状态变了 (例如 pending -> shipping)
-                if (data.status === 'shipping' && newOrder.status === OrderStatus.PENDING) {
-                    newOrder.status = OrderStatus.SHIPPING;
-                }
-                if (data.status === 'delivered') {
-                    newOrder.status = OrderStatus.DELIVERED;
-                }
+    // ✅ 从 Zustand store 获取实时更新的数据和距离
+    const order = useOrderStore((state) => state.order);
+    const distance = useOrderStore((state) => state.distance);
+    const { setInitialOrder, confirmReceipt: confirmAction } = useOrderActions();
 
-                // 3. 更新时间线 (重要！让列表动起来)
-                // 只有当有 statusText 且它是关键节点时才添加
-                // 为了防止每毫秒都添加，我们可以简单判断一下，或者完全信任后端的 flag
-                if (data.statusText && (data.status === 'arrived_node' || data.status === 'delivered' || data.status === 'shipping')) {
-                    const lastEvent = newOrder.timeline[0];
+    // ✅ 当 SWR 获取到数据后，用它来初始化/更新我们的 store
+    useEffect(() => {
+        if (swrOrder) {
+            setInitialOrder(swrOrder);
+        }
+    }, [swrOrder, setInitialOrder]);
 
-                    // 防止重复添加相同文案
-                    if (!lastEvent || lastEvent.description !== data.statusText) {
-                        newOrder.timeline = [
-                            {
-                                status: data.status,
-                                description: data.statusText,
-                                timestamp: new Date().toISOString(), // 或者 data.timestamp
-                                location: ''
-                            },
-                            ...newOrder.timeline
-                        ];
-                    }
-                }
-
-                return newOrder;
-            });
-            const distInMeters = getDistance(
-                { latitude: data.lat, longitude: data.lng },
-                { latitude: initialOrder.logistics.endLat, longitude: initialOrder.logistics.endLng }
-            );
-            setDistance((distInMeters / 1000).toFixed(1));
-        }, [initialOrder]);
-
+    // ✅ 确认收货的逻辑
     const handleConfirm = useCallback(async () => {
+        if (!order) return;
         const updatedOrder = await confirmOrderReceipt(order.id);
         if (updatedOrder) {
-            setOrder(updatedOrder);
+            confirmAction(updatedOrder); // 调用 store action 更新状态
         }
-    }, [order.id]);
+    }, [order, confirmAction]);
 
-    const startPoint: [number, number] = [initialOrder.logistics.startLng, initialOrder.logistics.startLat];
-    const endPoint: [number, number] = [initialOrder.logistics.endLng, initialOrder.logistics.endLat];
+    // ✅ 处理 SWR 加载和错误状态
+    if (error) return <div className="p-10 text-center text-red-500">加载订单信息失败...</div>;
+    // 如果 store 中还没有数据（初始化期间），可以显示一个加载状态
+    if (!order) return <div className="p-10 text-center text-gray-500">正在准备物流信息...</div>;
+
+
+    const startPoint: [number, number] = [order.logistics.startLng, order.logistics.startLat];
+    const endPoint: [number, number] = [order.logistics.endLng, order.logistics.endLat];
 
     return (
         <div className="relative w-full h-[100dvh] overflow-hidden bg-gray-100 font-sans">
-            {/* 底层：地图 */}
             <div className="absolute inset-0 z-0">
                 <MapContainer
                     startPoint={startPoint}
                     endPoint={endPoint}
-                    orderId={initialOrder.id}
-                    order={order}
-                    onOrderUpdate={handleOrderUpdate} // 👈 把回调传进去
+                    orderId={order.id}
+                    order={order} // 👈 传递从 store 来的实时 order
                 />
             </div>
             <div className="absolute top-0 left-0 w-full z-10 pt-safe-top">
@@ -102,7 +79,6 @@ export default function TrackingView({ initialOrder }: Props) {
                     距离目的地约 <span className="text-red-500 font-bold">{distance} km</span>
                 </div>
             )}
-
             <div className="absolute bottom-0 left-0 w-full z-20">
                 <TrackingTimeline order={order} onConfirm={handleConfirm} />
             </div>
