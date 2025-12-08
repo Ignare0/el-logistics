@@ -61,13 +61,6 @@ export default function HomeView({ initialOrders }: Props) {
 
     return (
         <div className="w-full min-h-screen bg-gray-50 font-sans p-4">
-            <header className="flex items-center justify-between mb-4">
-                <div className="flex items-center gap-1">
-                    <span className="text-lg font-bold">成都</span>
-                    <svg className="w-4 h-4 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
-                </div>
-                <div className="text-gray-400 text-sm">签到</div>
-            </header>
 
             <form onSubmit={handleSearch} className="relative mb-6">
                 <input
@@ -81,13 +74,6 @@ export default function HomeView({ initialOrders }: Props) {
                     <svg className="w-5 h-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
                 </div>
             </form>
-
-            {/* 模拟的UI元素 */}
-            <div className="grid grid-cols-3 gap-3 mb-6">
-                <div className="bg-red-600 text-white p-3 rounded-xl shadow-lg"><h3 className="font-bold">快速寄件</h3><p className="text-xs opacity-80">一小时上门取件</p></div>
-                <div className="bg-white p-3 rounded-xl shadow"><h3 className="font-bold">发物流</h3></div>
-                <div className="bg-white p-3 rounded-xl shadow"><h3 className="font-bold">扫一扫</h3></div>
-            </div>
 
 
             <main>

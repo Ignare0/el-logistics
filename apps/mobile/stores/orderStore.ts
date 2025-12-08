@@ -17,8 +17,11 @@ export const useOrderStore = create<OrderState>((set, get) => ({
     distance: null,
     actions: {
         // Action 1: 初始化 Store
-        setInitialOrder: (order) => set({ order }),
+        setInitialOrder: (order) => {
 
+            order.timeline.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+            set({ order });
+        },
         // Action 2: 处理来自 WebSocket 的更新 (核心逻辑)
         updateFromSocket: (data) => {
             const currentOrder = get().order;

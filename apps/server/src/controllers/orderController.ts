@@ -6,7 +6,10 @@ import { startSimulation } from "../utils/simulator";
 import { planLogisticsRoute } from '../services/logisticsService';
 import { NODES } from '../mock/nodes';
 import { orders } from '../mock/orders';
-
+const sortOrderTimeline = (order: ServerOrder) => {
+    order.timeline.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+    return order;
+};
 const enrichOrderWithCities = (order: ServerOrder) => {
     if (order.logistics.startNodeId) {
         order.startCity = NODES[order.logistics.startNodeId]?.city;
@@ -28,6 +31,7 @@ export const getOrderById = (req: Request, res: Response) => {
     const { id } = req.params;
     const order = orders.find(o => o.id === id);
     if (order) {
+        const sortedOrder = sortOrderTimeline(JSON.parse(JSON.stringify(order)));
         res.json(success(enrichOrderWithCities(order)));
     } else {
         res.status(404).json(error('订单不存在', 404));
