@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="Encoding" defaultCharsetForPropertiesFiles="UTF-8">
+    <file url="file://$PROJECT_DIR$/admin/src/App.tsx" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/admin/src/pages/OrderList.tsx" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/admin/src/services/orderService.ts" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/admin/src/types/index.ts" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/admin/src/utils/request.ts" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/server/src/controllers/orderController.ts" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/server/src/routes/orderRoutes.ts" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/server/src/types/order.ts" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/server/src/utils/response.ts" charset="UTF-8" />
+  </component>
+</project>

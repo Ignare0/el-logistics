@@ -1,0 +1,23 @@
+{
+  "compilerOptions": {
+    /* 基础配置 */
+    "target": "es2016",
+    "module": "commonjs",              /* 重点：让代码编译成 Node 能懂的 CommonJS */
+    "moduleResolution": "node",
+    "esModuleInterop": true,           /* 重点：允许 import express 这种写法 */
+    "forceConsistentCasingInFileNames": true,
+    "strict": true,
+    "skipLibCheck": true,
+
+    /* 输出目录 */
+    "outDir": "./dist",
+    "rootDir": "./src",
+    
+    /* 解决报错的核心：确保不开启 verbatimModuleSyntax */
+    "verbatimModuleSyntax": false
+  },
+  "include": [
+    "src/**/*"
+  ],
+  "exclude": ["node_modules"]
+}
