@@ -16,7 +16,6 @@ const OrderList: React.FC = () => {
         try {
             const res = await fetchOrders();
             if (res.code === 200) {
-                // 按创建时间降序设置为默认排序
                 const sortedData = res.data.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
                 setOrders(sortedData);
             } else {
@@ -39,8 +38,9 @@ const OrderList: React.FC = () => {
             const res = await shipOrder(id);
             if (res.code === 200) {
                 message.success('发货成功！物流轨迹模拟已启动');
+                // ✅ 修正：使用后端返回的最新数据来更新本地状态
                 setOrders(prev => prev.map(item =>
-                    item.id === id ? { ...item, status: OrderStatus.SHIPPING, ...res.data } : item
+                    item.id === id ? { ...item, ...res.data } : item
                 ));
             } else {
                 message.error(res.msg);
@@ -52,7 +52,6 @@ const OrderList: React.FC = () => {
         }
     };
 
-    // ✅ 表格列定义
     const columns: ColumnsType<Order> = [
         {
             title: '订单号',
@@ -77,7 +76,6 @@ const OrderList: React.FC = () => {
             dataIndex: 'amount',
             key: 'amount',
             width: 120,
-            // ✅ 新增：金额排序功能
             sorter: (a, b) => a.amount - b.amount,
             render: (val) => `¥${val.toFixed(2)}`,
         },
@@ -86,7 +84,6 @@ const OrderList: React.FC = () => {
             dataIndex: 'status',
             key: 'status',
             width: 120,
-            // ✅ 新增：状态筛选功能
             filters: Object.values(OrderStatus).map(status => ({
                 text: OrderStatusMap[status].text,
                 value: status,
@@ -98,14 +95,12 @@ const OrderList: React.FC = () => {
             },
         },
         {
-            // ✅ 新增：创建时间列
             title: '创建时间',
             dataIndex: 'createdAt',
             key: 'createdAt',
             width: 180,
-            // ✅ 新增：时间排序功能
             sorter: (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
-            render: (text) => new Date(text).toLocaleString(), // 格式化时间
+            render: (text) => new Date(text).toLocaleString(),
         },
         {
             title: '操作',
@@ -147,7 +142,7 @@ const OrderList: React.FC = () => {
                     rowKey="id"
                     loading={loading}
                     pagination={{ pageSize: 10 }}
-                    scroll={{ x: 970 }} // ✅ 增加横向滚动，防止小屏幕下布局错乱
+                    scroll={{ x: 970 }}
                 />
             </Card>
 
