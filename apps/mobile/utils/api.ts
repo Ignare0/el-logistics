@@ -21,7 +21,14 @@ export const fetcher = async <T>(url: string): Promise<T> => {
     }
     return json.data;
 };
-
+export const getOrders = async (): Promise<Order[]> => {
+    try {
+        return await fetcher<Order[]>(`${API_URL}/orders`);
+    } catch (e) {
+        console.error('获取订单列表失败', e);
+        return []; // 失败时返回空数组
+    }
+};
 
 // 订单详情获取 (保持不变，但会被 useOrder hook 使用)
 export const getOrderById = (id: string) => fetcher<Order>(`${API_URL}/orders/${id}`);
