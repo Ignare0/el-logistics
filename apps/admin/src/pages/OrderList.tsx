@@ -1,23 +1,24 @@
 import React, { useEffect, useState } from 'react';
-import { Table, Tag, Button, Card, message } from 'antd';
+import { Table, Tag, Button, Card, message, Space } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { fetchOrders, shipOrder } from '../services/orderService';
-// 👇 关键：引入共享类型和映射表
 import { Order, OrderStatus, OrderStatusMap } from '@el/types';
+import CreateOrderModal from './CreateOrderModal';
 
 const OrderList: React.FC = () => {
     // 显式指定 State 类型，杜绝推断错误
     const [orders, setOrders] = useState<Order[]>([]);
     const [loading, setLoading] = useState(false);
     const [actionLoading, setActionLoading] = useState<string | null>(null); // 记录哪个 ID 正在发货中
-
+    const [isModalVisible, setIsModalVisible] = useState(false);
     const loadData = async () => {
         setLoading(true);
         try {
             const res = await fetchOrders();
             // 严格判断 code === 200
             if (res.code === 200) {
-                setOrders(res.data);
+                const sortedData = res.data.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+                setOrders(sortedData);
             } else {
                 message.error(res.msg || '获取数据失败');
             }
@@ -108,20 +109,40 @@ const OrderList: React.FC = () => {
     ];
 
     return (
-        <Card
-            title="📦 物流控制台"
-            extra={<Button onClick={loadData} loading={loading}>刷新数据</Button>}
-            bordered={false}
-            className="shadow-sm"
-        >
-            <Table
-                dataSource={orders}
-                columns={columns}
-                rowKey="id"
-                loading={loading}
-                pagination={{ pageSize: 10 }}
+        <>
+            <Card
+                title="📦 物流控制台"
+                extra={
+                    // ✅ 使用 Space 组件来美化按钮间距
+                    <Space>
+                        <Button type="primary" onClick={() => setIsModalVisible(true)}>
+                            创建订单
+                        </Button>
+                        <Button onClick={loadData} loading={loading}>刷新数据</Button>
+                    </Space>
+                }
+                bordered={false}
+                className="shadow-sm"
+            >
+                <Table
+                    dataSource={orders}
+                    columns={columns}
+                    rowKey="id"
+                    loading={loading}
+                    pagination={{ pageSize: 10 }}
+                />
+            </Card>
+
+            {/* ✅ 渲染弹窗组件 */}
+            <CreateOrderModal
+                visible={isModalVisible}
+                onClose={() => setIsModalVisible(false)}
+                onSuccess={() => {
+                    setIsModalVisible(false); // 关闭弹窗
+                    loadData(); // 重新加载数据
+                }}
             />
-        </Card>
+        </>
     );
 };
 

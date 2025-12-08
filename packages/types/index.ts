@@ -1,5 +1,20 @@
 // packages/types/index.ts
+export type NodeType = 'HUB' | 'CENTER' | 'STATION' | 'WAREHOUSE' | 'ADDRESS';
 
+// ✅ 2. 把 LogisticsNode 接口定义移到这里并导出
+export interface LogisticsNode {
+    id: string;        // 唯一标识
+    name: string;      // 显示名称
+    type: NodeType;    // 节点类型
+
+    location: {
+        lat: number;   // 纬度
+        lng: number;   // 经度
+    };
+
+    city?: string;     // 所属城市
+    regionCode?: string; // 行政区划代码
+}
 export interface TimelineEvent {
     status: string;         // 例如 "shipping", "arrived_node"
     description: string;    // 例如 "已到达【上海转运中心】"

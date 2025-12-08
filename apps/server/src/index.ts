@@ -5,6 +5,7 @@ import cors from 'cors';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
 import orderRoutes from "./routes/orderRoutes";
+import { getSelectableNodes } from './controllers/nodeController'
 
 const app = express();
 const httpServer = createServer(app);
@@ -35,6 +36,7 @@ io.on('connection', (socket) => {
 app.set('socketio', io);
 //注册路由
 app.use('/api/orders', orderRoutes);
+app.get('/api/nodes/selectable', getSelectableNodes);
 // 3. 基础路由
 app.get('/', (req, res) => {
     res.send('Logistics Backend is Running!');
