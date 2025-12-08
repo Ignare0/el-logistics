@@ -35,6 +35,8 @@ export interface Order {
     createdAt: string;
     status: OrderStatus;
     eta?: string;
+    startCity?: string;
+    endCity?: string;
 
     // 这里的类型必须和上面定义的一致
     timeline: TimelineEvent[];

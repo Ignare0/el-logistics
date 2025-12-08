@@ -3,10 +3,11 @@
 'use client'; // 必须标记为客户端组件，因为用了 useState
 
 import React, { useState } from 'react';
-import { Order } from '@el/types';
+import { Order, OrderStatus } from '@el/types';
 
 interface Props {
     order: Order;
+    onConfirm: () => Promise<void>;
 }
 
 const ActionButton = ({ icon, text }: { icon: React.ReactNode; text: string }) => (
@@ -18,7 +19,7 @@ const ActionButton = ({ icon, text }: { icon: React.ReactNode; text: string }) =
     </div>
 );
 
-export const TrackingTimeline: React.FC<Props> = ({ order }) => {
+export const TrackingTimeline: React.FC<Props> = ({ order, onConfirm }) => {
     // 状态：控制抽屉展开还是收起 (默认收起，为了让用户先看地图)
     const [isExpanded, setIsExpanded] = useState(false);
 
@@ -50,13 +51,11 @@ export const TrackingTimeline: React.FC<Props> = ({ order }) => {
 
                 {/* 功能按钮栏 */}
                 <div className="grid grid-cols-5 gap-2 px-4 pb-4 pt-2">
-                    <ActionButton icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>} text="非本人" />
-                    <ActionButton icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M18.364 5.636l-3.536 3.536m0 5.656l3.536 3.536M9.172 9.172L5.636 5.636m3.536 9.192l-3.536 3.536M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-5 0a4 4 0 11-8 0 4 4 0 018 0z" /></svg>} text="客服中心" />
+
                     <ActionButton icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" /></svg>} text="收件方式" />
                     <ActionButton icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>} text="催派" />
-                    <ActionButton icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>} text="偏好设置" />
-                </div>
 
+                </div>
                 {/* 展开/收起 提示箭头 (绝对定位在右上角) */}
                 <div className="absolute top-4 right-4 text-gray-400">
                     <svg className={`w-5 h-5 transition-transform duration-300 ${isExpanded ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -64,7 +63,16 @@ export const TrackingTimeline: React.FC<Props> = ({ order }) => {
                     </svg>
                 </div>
             </div>
-
+            {order.status === OrderStatus.DELIVERED && (
+                <div className="px-4 py-3 bg-white border-t border-gray-100">
+                    <button
+                        onClick={onConfirm}
+                        className="w-full bg-red-500 text-white font-bold py-3 rounded-xl text-lg active:scale-95 transition-transform"
+                    >
+                        确认签收
+                    </button>
+                </div>
+            )}
             {/* 2. 滚动内容区 (时间轴) */}
             {/* 这里的 flex-1 和 overflow-y-auto 确保只有这部分会滚动 */}
             <div className="flex-1 overflow-y-auto bg-white px-5 py-4">

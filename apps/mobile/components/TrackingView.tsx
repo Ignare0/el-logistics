@@ -1,8 +1,10 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import { Order, OrderStatus, PositionUpdatePayload } from '@el/types';
 import dynamic from 'next/dynamic';
+import { confirmOrderReceipt } from '@/utils/api'; // 引入API
+import { getDistance } from 'geolib';
 import { TrackingHeader } from './TrackingHeader';
 import { TrackingTimeline } from './TrackingTimeline';
 
@@ -21,7 +23,7 @@ interface Props {
 export default function TrackingView({ initialOrder }: Props) {
     // ✅ 核心：使用 state 来管理订单数据，这样数据变了页面才会刷新
     const [order, setOrder] = useState<Order>(initialOrder);
-
+    const [distance, setDistance] = useState<string | null>(null);
     // 处理 Socket 传来的更新
     const handleOrderUpdate = React.useCallback(
         (data: PositionUpdatePayload) => {
@@ -63,8 +65,19 @@ export default function TrackingView({ initialOrder }: Props) {
 
                 return newOrder;
             });
-        },[]
-    )
+            const distInMeters = getDistance(
+                { latitude: data.lat, longitude: data.lng },
+                { latitude: initialOrder.logistics.endLat, longitude: initialOrder.logistics.endLng }
+            );
+            setDistance((distInMeters / 1000).toFixed(1));
+        }, [initialOrder]);
+
+    const handleConfirm = useCallback(async () => {
+        const updatedOrder = await confirmOrderReceipt(order.id);
+        if (updatedOrder) {
+            setOrder(updatedOrder);
+        }
+    }, [order.id]);
 
     const startPoint: [number, number] = [initialOrder.logistics.startLng, initialOrder.logistics.startLat];
     const endPoint: [number, number] = [initialOrder.logistics.endLng, initialOrder.logistics.endLat];
@@ -76,19 +89,22 @@ export default function TrackingView({ initialOrder }: Props) {
                 <MapContainer
                     startPoint={startPoint}
                     endPoint={endPoint}
-                    orderId={order.id}
+                    orderId={initialOrder.id}
+                    order={order}
                     onOrderUpdate={handleOrderUpdate} // 👈 把回调传进去
                 />
             </div>
-
-            {/* 顶层：Header (传入 state 中的 order) */}
             <div className="absolute top-0 left-0 w-full z-10 pt-safe-top">
                 <TrackingHeader order={order} />
             </div>
+            {distance && order.status !== OrderStatus.DELIVERED && order.status !== OrderStatus.COMPLETED && (
+                <div className="absolute top-[160px] left-1/2 -translate-x-1/2 z-10 self-center bg-white/90 backdrop-blur text-xs px-3 py-1.5 rounded-full shadow-sm text-gray-600">
+                    距离目的地约 <span className="text-red-500 font-bold">{distance} km</span>
+                </div>
+            )}
 
-            {/* 底层：Timeline (传入 state 中的 order) */}
             <div className="absolute bottom-0 left-0 w-full z-20">
-                <TrackingTimeline order={order} />
+                <TrackingTimeline order={order} onConfirm={handleConfirm} />
             </div>
         </div>
     );

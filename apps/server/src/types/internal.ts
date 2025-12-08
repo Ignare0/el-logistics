@@ -8,6 +8,7 @@ export interface ServerOrder extends Order {
         currentLat?: number;
         currentLng?: number;
         plannedRoute?: LogisticsNode[];
+
     };
 
     timeline: TimelineEvent[];
