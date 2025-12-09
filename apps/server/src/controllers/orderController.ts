@@ -21,8 +21,20 @@ const enrichOrderWithCities = (order: ServerOrder) => {
 };
 // --- 1. 获取列表 ---
 export const getOrders = (req: Request, res: Response) => {
-    // 真实场景可以用 req.query.status 筛选
-    const enrichedOrders = orders.map(enrichOrderWithCities);
+    // 支持 merchantId 和 customerId 过滤
+    const { merchantId, customerId } = req.query;
+
+    let filteredOrders = orders;
+
+    if (merchantId) {
+        filteredOrders = filteredOrders.filter(o => o.merchantId === merchantId);
+    }
+
+    if (customerId) {
+        filteredOrders = filteredOrders.filter(o => o.customerId === customerId);
+    }
+
+    const enrichedOrders = filteredOrders.map(enrichOrderWithCities);
     res.json(success(enrichedOrders));
 };
 
@@ -40,7 +52,7 @@ export const getOrderById = (req: Request, res: Response) => {
 
 // --- 3. [新增] 创建订单 ---
 export const createOrder = (req: Request, res: Response) => {
-    const { customer, amount, startNodeId, endNodeId } = req.body;
+    const { customer, amount, startNodeId, endNodeId, merchantId, customerId, serviceLevel } = req.body;
 
     if (!customer || !startNodeId || !endNodeId) {
         return res.status(400).json(error('参数不完整'));
@@ -57,6 +69,9 @@ export const createOrder = (req: Request, res: Response) => {
 
     const newOrder: ServerOrder = {
         id: newId,
+        merchantId,
+        customerId,
+        serviceLevel: serviceLevel || 'STANDARD',
         customer,
         amount: Number(amount),
         createdAt: new Date().toISOString(),
@@ -99,7 +114,8 @@ export const shipOrder = (req: Request, res: Response) => {
         try {
             const route = planLogisticsRoute(
                 order.logistics.startNodeId,
-                order.logistics.endNodeId
+                order.logistics.endNodeId,
+                order.serviceLevel // 传递服务等级 (EXPRESS/STANDARD)
             );
             order.logistics.plannedRoute = route;
         } catch (e) {

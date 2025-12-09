@@ -1,20 +1,27 @@
 import React, { useEffect, useState } from 'react';
-import { Table, Tag, Button, Card, message, Space } from 'antd';
+import { Table, Tag, Button, Card, message, Space, Popover, Typography } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { fetchOrders, shipOrder } from '../services/orderService';
 import { Order, OrderStatus, OrderStatusMap } from '@el/types';
 import CreateOrderModal from './CreateOrderModal';
+import { useMerchant } from '../contexts/MerchantContext';
+import { RocketOutlined, CarOutlined } from '@ant-design/icons';
+
+const { Text } = Typography;
 
 const OrderList: React.FC = () => {
     const [orders, setOrders] = useState<Order[]>([]);
     const [loading, setLoading] = useState(false);
     const [actionLoading, setActionLoading] = useState<string | null>(null);
     const [isModalVisible, setIsModalVisible] = useState(false);
+    const { currentMerchant } = useMerchant();
 
     const loadData = async () => {
+        if (!currentMerchant) return;
+        
         setLoading(true);
         try {
-            const res = await fetchOrders();
+            const res = await fetchOrders({ merchantId: currentMerchant.id });
             if (res.code === 200) {
                 const sortedData = res.data.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
                 setOrders(sortedData);
@@ -30,7 +37,7 @@ const OrderList: React.FC = () => {
 
     useEffect(() => {
         loadData();
-    }, []);
+    }, [currentMerchant]); // 监听商家切换
 
     const handleShip = async (id: string) => {
         setActionLoading(id);
@@ -58,6 +65,52 @@ const OrderList: React.FC = () => {
             dataIndex: 'id',
             key: 'id',
             width: 150,
+        },
+        {
+            title: '服务',
+            dataIndex: 'serviceLevel',
+            key: 'serviceLevel',
+            width: 100,
+            render: (val: string) => {
+                const isExpress = val === 'EXPRESS';
+                return (
+                    <Tag color={isExpress ? 'red' : 'blue'} icon={isExpress ? <RocketOutlined /> : <CarOutlined />}>
+                        {isExpress ? '特快' : '普快'}
+                    </Tag>
+                );
+            }
+        },
+        {
+            title: '商品明细',
+            key: 'items',
+            width: 200,
+            render: (_, record) => {
+                const items = record.items || [];
+                if (items.length === 0) return <Text type="secondary">-</Text>;
+                
+                const content = (
+                    <div>
+                        {items.map((item, idx) => (
+                            <div key={idx} style={{ marginBottom: 4 }}>
+                                <Text strong>{item.name}</Text> x {item.quantity}
+                            </div>
+                        ))}
+                    </div>
+                );
+
+                return (
+                    <Popover content={content} title="商品清单">
+                        <Space direction="vertical" size={0}>
+                            {items.slice(0, 2).map((item, idx) => (
+                                <div key={idx}>
+                                    <Text ellipsis style={{ maxWidth: 150 }}>{item.name}</Text> <Text type="secondary">x{item.quantity}</Text>
+                                </div>
+                            ))}
+                            {items.length > 2 && <Text type="secondary" style={{ fontSize: 12 }}>... 共 {items.length} 件</Text>}
+                        </Space>
+                    </Popover>
+                );
+            }
         },
         {
             title: '客户信息',

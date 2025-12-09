@@ -3,6 +3,8 @@ export const NETWORK_TOPOLOGY = {
     // --- 1. 商家/用户 -> 负责的网点 (Last Mile / First Mile) ---
     'WH_SH_QINGPU': 'STATION_SH_HUAXIN',         // 上海仓 -> 青浦网点
     'WH_GZ_BAIYUN': 'STATION_GZ_AIRPORT_NORTH',  // 广州仓 -> 机场北网点
+    'WH_BJ_DASHING': 'HUB_BJ_DAXING',            // 北京仓 -> 大兴机场 (直连)
+    'WH_SZ_BAOAN': 'HUB_SZ_BAOAN_AIR',           // 深圳仓 -> 宝安机场 (直连)
 
     'ADDR_GZ_TIANHE': 'STATION_GZ_CBD',          // 广州塔买家 -> 珠江新城网点
     'ADDR_WH_UNIV': 'STATION_WH_LUOJIA',         // 武大买家 -> 武大驿站

@@ -64,6 +64,12 @@ function MapContainer({startPoint, endPoint, orderId, order }: Props) {
             strokeDasharray: [10, 10],
             geodesic: true,
         });
+
+        // ✅ 初始化时如果已完成，直接隐藏虚线
+        if (order.status === OrderStatus.DELIVERED || order.status === OrderStatus.COMPLETED) {
+            dashPolyline.hide();
+        }
+
         map.add(dashPolyline);
         dashPolylineRef.current = dashPolyline;
         map.setFitView([dashPolyline], false, [50, 50, 300, 50]);
@@ -75,7 +81,8 @@ function MapContainer({startPoint, endPoint, orderId, order }: Props) {
         map,
         AMap,
         orderId,
-        startPoint
+        startPoint,
+        initialPath: order.logistics.actualRoute // ✅ 传递历史路径以回显
     });
 
     return (

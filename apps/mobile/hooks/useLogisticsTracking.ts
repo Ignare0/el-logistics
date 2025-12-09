@@ -8,14 +8,14 @@ interface TrackingOptions {
     AMap: AMap.AMapNamespace | null;
     orderId: string;
     startPoint: [number, number];
-    // onUpdate?: (data: PositionUpdatePayload) => void; // ✅ 不再需要
+    initialPath?: [number, number][]; // 初始路径（用于回显历史轨迹）
 }
 
-export const useLogisticsTracking = ({ map, AMap, orderId, startPoint }: TrackingOptions) => {
+export const useLogisticsTracking = ({ map, AMap, orderId, startPoint, initialPath }: TrackingOptions) => {
     const socketRef = useRef<Socket | null>(null);
     const carMarkerRef = useRef<AMap.Marker | null>(null);
     const passedPolylineRef = useRef<AMap.Polyline | null>(null);
-    const pathRef = useRef<Array<[number, number]>>([startPoint]);
+    const pathRef = useRef<Array<[number, number]>>(initialPath || [startPoint]);
 
     // ✅ 直接从 store 获取更新函数
     const { updateFromSocket } = useOrderActions();
@@ -32,9 +32,14 @@ export const useLogisticsTracking = ({ map, AMap, orderId, startPoint }: Trackin
         if (!map || !AMap) return;
 
         if (!carMarkerRef.current) {
+            // 确定初始位置：如果有历史路径，则车在最后一点；否则在起点
+            const initPos = (initialPath && initialPath.length > 0) 
+                ? initialPath[initialPath.length - 1] 
+                : startPoint;
+
             carMarkerRef.current = new AMap.Marker({
                 map: map,
-                position: startPoint,
+                position: initPos,
                 icon: new AMap.Icon({ size: new AMap.Size(52, 26), image: '/transporter.svg', imageSize: new AMap.Size(52, 26) }),
                 offset: new AMap.Pixel(-26, -13),
                 zIndex: 100,
@@ -43,11 +48,16 @@ export const useLogisticsTracking = ({ map, AMap, orderId, startPoint }: Trackin
             });
 
             passedPolylineRef.current = new AMap.Polyline({
-                path: [startPoint],
+                path: initialPath || [startPoint],
                 strokeColor: '#D93F32',
                 strokeWeight: 6,
             });
             map.add(passedPolylineRef.current);
+            
+            // 如果有历史路径，调整视野以包含路径
+            if (initialPath && initialPath.length > 1) {
+                map.setFitView([passedPolylineRef.current]);
+            }
 
             carMarkerRef.current.on('moving', (e: any) => {
                 const currentPos = e.target.getPosition();

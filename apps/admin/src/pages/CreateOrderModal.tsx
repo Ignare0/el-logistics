@@ -43,6 +43,7 @@ const CreateOrderModal: React.FC<Props> = ({ visible, onClose, onSuccess }) => {
                 amount: values.amount,
                 startNodeId: values.startNodeId,
                 endNodeId: values.endNodeId,
+                serviceLevel: values.serviceLevel,
             };
 
             const res = await createOrder(payload);
@@ -81,6 +82,12 @@ const CreateOrderModal: React.FC<Props> = ({ visible, onClose, onSuccess }) => {
                 </Form.Item>
                 <Form.Item name="amount" label="订单金额" rules={[{ required: true, message: '请输入订单金额' }]}>
                     <InputNumber prefix="¥" style={{ width: '100%' }} />
+                </Form.Item>
+                <Form.Item name="serviceLevel" label="服务等级" initialValue="STANDARD" rules={[{ required: true, message: '请选择服务等级' }]}>
+                    <Select>
+                        <Select.Option value="STANDARD">🚚 普快 (陆运)</Select.Option>
+                        <Select.Option value="EXPRESS">🚀 特快 (空运)</Select.Option>
+                    </Select>
                 </Form.Item>
                 <Form.Item name="startNodeId" label="发货仓库" rules={[{ required: true, message: '请选择发货仓库' }]}>
                     <Select placeholder="选择一个仓库">

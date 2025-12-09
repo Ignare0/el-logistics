@@ -9,7 +9,7 @@ import { LogisticsNode } from '../domain/Node';
  * 输入：起点ID, 终点ID
  * 输出：完整的节点数组 [起点, ..., 枢纽, ..., 终点]
  */
-export const planLogisticsRoute = (startNodeId: string, endNodeId: string): LogisticsNode[] => {
+export const planLogisticsRoute = (startNodeId: string, endNodeId: string, serviceLevel: string = 'STANDARD'): LogisticsNode[] => {
     // 1. 获取起点和终点的完整节点对象
     const startNode = NODES[startNodeId];
     const endNode = NODES[endNodeId];
@@ -53,19 +53,48 @@ export const planLogisticsRoute = (startNodeId: string, endNodeId: string): Logi
         finalRoute = [...upPart, ...downPart];
     } else {
         // --- 情况 B: 跨省/跨区 (无交集，走干线) ---
-        // 路径 = 起点链 -> [干线] -> 终点链(反转)
-        // 假设所有顶级枢纽(Hub)之间都是通的 (简化逻辑，实际可以用 Graph 搜索)
+        
+        let finalSourceChain = sourceChain;
+        let finalTargetChain = targetChain;
 
-        // 拿到两个链的顶端 (Hub)
-        // const sourceHub = sourceChain[sourceChain.length - 1];
-        // const targetHub = targetChain[targetChain.length - 1];
+        // 如果是普快 (STANDARD)，且不需要走空运，尝试截断到分拨中心 (CENTER)
+        // 逻辑：如果链条顶部是 HUB (Airport)，且下面有 CENTER，则只走到 CENTER
+        if (serviceLevel === 'STANDARD') {
+            finalSourceChain = trimToCenter(sourceChain);
+            finalTargetChain = trimToCenter(targetChain);
+        }
 
         // 拼接: 上行链全部 + 下行链全部反转
-        finalRoute = [...sourceChain, ...targetChain.reverse()];
+        finalRoute = [...finalSourceChain, ...finalTargetChain.reverse()];
     }
 
     return finalRoute;
 };
+
+/**
+ * 辅助函数：如果是普快，尝试截断到 Center 层级
+ * 也就是去掉顶部的 HUB，如果顶部是 HUB 且下面有 CENTER 的话。
+ */
+const trimToCenter = (chain: LogisticsNode[]): LogisticsNode[] => {
+    // 链条是 [Station, Center, Hub]
+    // 我们想保留到 Center
+    
+    // 倒序查找第一个 CENTER
+    const centerIndex = chain.findIndex(n => n.type === 'CENTER');
+    
+    // 如果找到了 CENTER，且 CENTER 不是最后一个（说明上面还有 HUB）
+    // 或者就是想截断到 CENTER（不管上面有没有）
+    // 其实只要保留到 CENTER 即可 (包含 CENTER)
+    if (centerIndex !== -1) {
+        // 比如 [Station, Center, Hub], centerIndex = 1.
+        // slice(0, 2) -> [Station, Center]
+        return chain.slice(0, centerIndex + 1);
+    }
+    
+    // 如果没有 CENTER (比如直接 WH -> Hub)，那只能走 Hub
+    return chain;
+};
+
 
 /**
  * 辅助函数：向上回溯查找父节点

@@ -20,6 +20,20 @@ export const NODES: Record<string, LogisticsNode> = {
         location: { lat: 23.3211, lng: 113.3512 },
         city: 'Guangzhou'
     },
+    'WH_BJ_DASHING': {
+        id: 'WH_BJ_DASHING',
+        name: '北京大兴智能仓',
+        type: 'WAREHOUSE',
+        location: { lat: 39.5427, lng: 116.3621 },
+        city: 'Beijing'
+    },
+    'WH_SZ_BAOAN': {
+        id: 'WH_SZ_BAOAN',
+        name: '深圳宝安前海仓',
+        type: 'WAREHOUSE',
+        location: { lat: 22.5533, lng: 113.8831 },
+        city: 'Shenzhen'
+    },
 
     // 用户收货地址
     'ADDR_GZ_TIANHE': {
@@ -75,6 +89,20 @@ export const NODES: Record<string, LogisticsNode> = {
         type: 'HUB',
         location: { lat: 43.9961, lng: 125.6883 },
         city: 'Changchun'
+    },
+    'HUB_BJ_DAXING': {
+        id: 'HUB_BJ_DAXING',
+        name: '北京大兴国际机场',
+        type: 'HUB',
+        location: { lat: 39.5097, lng: 116.4105 },
+        city: 'Beijing'
+    },
+    'HUB_SZ_BAOAN_AIR': {
+        id: 'HUB_SZ_BAOAN_AIR',
+        name: '深圳宝安国际机场',
+        type: 'HUB',
+        location: { lat: 22.6367, lng: 113.8053 },
+        city: 'Shenzhen'
     },
 
     // ==========================================

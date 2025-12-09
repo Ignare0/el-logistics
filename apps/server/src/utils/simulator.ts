@@ -62,6 +62,16 @@ const updateOrderMemory = (order: ServerOrder, payload: PositionUpdatePayload) =
     order.logistics.currentLat = payload.lat;
     order.logistics.currentLng = payload.lng;
 
+    // 1.1 记录实际轨迹 (持久化路径)
+    if (!order.logistics.actualRoute) {
+        order.logistics.actualRoute = [];
+    }
+    // 防止重复点 (简单的去重)
+    const lastPoint = order.logistics.actualRoute[order.logistics.actualRoute.length - 1];
+    if (!lastPoint || lastPoint[0] !== payload.lng || lastPoint[1] !== payload.lat) {
+        order.logistics.actualRoute.push([payload.lng, payload.lat]);
+    }
+
     // 2. 如果是关键节点事件，记录到 Timeline
     // 注意：这里只记录 arrived_node, delivered, shipping(仅第一次) 等关键状态
     const isCriticalStatus = ['arrived_node', 'delivered', 'exception'].includes(payload.status);

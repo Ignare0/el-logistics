@@ -6,12 +6,18 @@ import { fetchOrders } from '../services/orderService';
 import { ShoppingCartOutlined, CarOutlined } from '@ant-design/icons';
 import { io, Socket } from 'socket.io-client';
 
+import { useMerchant } from '../contexts/MerchantContext';
+
 const Dashboard: React.FC = () => {
     const [orders, setOrders] = useState<Order[]>([]);
     const socketRef = useRef<Socket | null>(null);
+    const { currentMerchant } = useMerchant();
 
     const loadData = async () => {
-        const res = await fetchOrders();
+        // 如果没有选定商家，则不加载或加载所有（取决于需求，这里假设必须选商家）
+        if (!currentMerchant) return;
+        
+        const res = await fetchOrders({ merchantId: currentMerchant.id });
         if (res.code === 200) {
             setOrders(res.data);
         }
@@ -19,7 +25,9 @@ const Dashboard: React.FC = () => {
 
     useEffect(() => {
         loadData();
+    }, [currentMerchant]); // 当商家切换时，重新加载数据
 
+    useEffect(() => {
         // 连接 Socket.io
         const apiUrl = 'http://localhost:4000'; // 确保与后端地址一致
         socketRef.current = io(apiUrl);
@@ -47,7 +55,10 @@ const Dashboard: React.FC = () => {
                 socketRef.current.disconnect();
             }
         };
-    }, []);
+    }, [currentMerchant]); // socket 连接本身可以不依赖 currentMerchant，但监听器内部用到 loadData，loadData 依赖 currentMerchant
+    // 实际上 socket 可以只连一次，但是 loadData 闭包可能会有旧值问题。
+    // 更好的做法是将 socket 逻辑和 loadData 逻辑分开，或者使用 ref 保持 merchantId
+
 
     // 统计数据
     const totalAmount = orders.reduce((sum, order) => sum + order.amount, 0);

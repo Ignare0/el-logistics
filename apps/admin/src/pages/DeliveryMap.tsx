@@ -3,6 +3,7 @@ import { Card, Button, message, Alert } from 'antd';
 import AMapLoader from '@amap/amap-jsapi-loader';
 import { Order } from '@el/types';
 import { fetchOrders } from '../services/orderService';
+import { useMerchant } from '../contexts/MerchantContext';
 
 const DeliveryMap: React.FC = () => {
     const [orders, setOrders] = useState<Order[]>([]);
@@ -10,17 +11,22 @@ const DeliveryMap: React.FC = () => {
     const polygonRef = useRef<any>(null);
     const mouseToolRef = useRef<any>(null);
     const markersRef = useRef<any[]>([]);
+    const { currentMerchant } = useMerchant();
 
     useEffect(() => {
         loadMap();
-        loadOrders();
         return () => {
             mapRef.current?.destroy();
         };
     }, []);
 
+    useEffect(() => {
+        loadOrders();
+    }, [currentMerchant]);
+
     const loadOrders = async () => {
-        const res = await fetchOrders();
+        if (!currentMerchant) return;
+        const res = await fetchOrders({ merchantId: currentMerchant.id });
         if (res.code === 200) {
             setOrders(res.data);
             updateMarkers(res.data);

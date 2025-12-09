@@ -6,6 +6,8 @@ import { createServer } from 'http';
 import { Server } from 'socket.io';
 import orderRoutes from "./routes/orderRoutes";
 import { getSelectableNodes } from './controllers/nodeController'
+import { merchants } from './mock/merchants';
+import { success } from './utils/response';
 
 const app = express();
 const httpServer = createServer(app);
@@ -37,6 +39,11 @@ app.set('socketio', io);
 //注册路由
 app.use('/api/orders', orderRoutes);
 app.get('/api/nodes/selectable', getSelectableNodes);
+// 新增：获取商家列表
+app.get('/api/merchants', (req, res) => {
+    res.json(success(merchants));
+});
+
 // 3. 基础路由
 app.get('/', (req, res) => {
     res.send('Logistics Backend is Running!');

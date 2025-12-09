@@ -12,6 +12,7 @@ export interface CreateOrderPayload {
     amount: number;
     startNodeId: string;
     endNodeId: string;
+    serviceLevel?: string; // 可选，默认为 STANDARD
 }
 
 // ✅ 定义节点接口返回的数据结构
@@ -24,10 +25,10 @@ export interface SelectableNodes {
 // 我们需要告诉 TypeScript，request.get 返回的是 Promise<ApiResponse<T>>
 // 而不是 AxiosResponse。
 
-export const fetchOrders = async (): Promise<ApiResponse<Order[]>> => {
+export const fetchOrders = async (params?: { merchantId?: string; customerId?: string }): Promise<ApiResponse<Order[]>> => {
     // 第一个泛型：服务器原始返回的数据结构 (T)
     // 第二个泛型：经过 request.ts 拦截器剥离后，最终返回的数据结构 (R)
-    return request.get<ApiResponse<Order[]>, ApiResponse<Order[]>>('/orders');
+    return request.get<ApiResponse<Order[]>, ApiResponse<Order[]>>('/orders', { params });
 };
 
 export const shipOrder = async (orderId: string): Promise<ApiResponse<Order>> => {

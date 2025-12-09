@@ -15,6 +15,7 @@ export interface LogisticsNode {
     city?: string;     // 所属城市
     regionCode?: string; // 行政区划代码
 }
+
 export interface TimelineEvent {
     status: string;         // 例如 "shipping", "arrived_node"
     description: string;    // 例如 "已到达【上海转运中心】"
@@ -35,12 +36,24 @@ export const OrderStatusMap: Record<OrderStatus, { text: string; color: string }
     [OrderStatus.PENDING]: { text: '待发货', color: 'orange' },
     [OrderStatus.SHIPPING]: { text: '运输中', color: 'blue' },
     [OrderStatus.DELIVERED]: { text: '已送达', color: 'green' },
-    [OrderStatus.COMPLETED]: { text: '已完成', color: 'gray' }, // 新增
+    [OrderStatus.COMPLETED]: { text: '已完成', color: 'gray' },
     [OrderStatus.EXCEPTION]: { text: '异常', color: 'red' }
 };
 
+export interface OrderItem {
+    sku: string;
+    name: string;
+    quantity: number;
+}
+
 export interface Order {
     id: string;
+    merchantId?: string; // 商家ID
+    customerId?: string; // 用户ID
+    serviceLevel?: 'EXPRESS' | 'STANDARD'; // 服务等级：特快/普快
+    
+    items?: OrderItem[]; // 新增：订单商品明细
+
     customer: {
         name: string;
         phone: string;
@@ -67,6 +80,8 @@ export interface Order {
         endLng: number;
         currentLat?: number;
         currentLng?: number;
+        plannedRoute?: LogisticsNode[];
+        actualRoute?: [number, number][]; // 实际行驶路径坐标点集合
     };
 }
 
@@ -87,5 +102,22 @@ export interface PositionUpdatePayload {
     zoom?: number;
     speed?: number;
     resetView?: boolean;
-    timestamp?: string; // 最好加上这个，方便前端展示
+    timestamp?: string;
+}
+
+export interface WarehouseStock {
+    nodeId: string;
+    inventory: Record<string, number>; // sku -> count
+}
+
+export interface Merchant {
+    id: string;
+    name: string;
+    warehouses: WarehouseStock[]; // 商家拥有的仓库节点及库存
+}
+
+export interface User {
+    id: string;
+    name: string;
+    phone: string;
 }
