@@ -20,7 +20,7 @@ export const TrackingHeader: React.FC<Props> = ({ order }) => {
             {/* 1. 顶部透明导航栏 */}
             <div className="flex justify-between items-center text-gray-800 mb-1">
                 <button
-                    onClick={() => router.back()}
+                    onClick={() => router.push('/')}
                     className="w-8 h-8 bg-white/90 backdrop-blur rounded-full flex items-center justify-center shadow-sm"
                 >
                     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M15 19l-7-7 7-7" /></svg>

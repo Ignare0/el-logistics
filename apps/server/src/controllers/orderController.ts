@@ -142,5 +142,13 @@ export const confirmReceipt = (req: Request, res: Response) => {
         timestamp: new Date().toISOString() // ✅ 修正为 timestamp
     });
 
+    const io = req.app.get('socketio');
+    if (io) {
+        io.emit('order_updated', {
+            orderId: id,
+            status: OrderStatus.COMPLETED
+        });
+    }
+
     res.json(success(order, '确认收货成功'));
 };

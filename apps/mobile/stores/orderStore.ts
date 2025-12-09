@@ -63,6 +63,9 @@ export const useOrderStore = create<OrderState>((set, get) => ({
 
         // Action 3: 用户确认收货后更新状态
         confirmReceipt: (updatedOrder) => {
+            if (updatedOrder && updatedOrder.timeline) {
+                updatedOrder.timeline.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+            }
             set({ order: updatedOrder });
         }
     }

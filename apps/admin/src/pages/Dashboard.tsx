@@ -1,19 +1,52 @@
-import React, { useEffect, useState } from 'react';
-import { Card, Row, Col, Statistic } from 'antd';
+import React, { useEffect, useState, useRef } from 'react';
+import { Card, Row, Col, Statistic, message } from 'antd';
 import ReactECharts from 'echarts-for-react';
-import { Order, OrderStatus } from '@el/types';
+import { Order, OrderStatus, PositionUpdatePayload } from '@el/types';
 import { fetchOrders } from '../services/orderService';
 import { ShoppingCartOutlined, CarOutlined } from '@ant-design/icons';
+import { io, Socket } from 'socket.io-client';
 
 const Dashboard: React.FC = () => {
     const [orders, setOrders] = useState<Order[]>([]);
+    const socketRef = useRef<Socket | null>(null);
+
+    const loadData = async () => {
+        const res = await fetchOrders();
+        if (res.code === 200) {
+            setOrders(res.data);
+        }
+    };
 
     useEffect(() => {
-        fetchOrders().then(res => {
-            if (res.code === 200) {
-                setOrders(res.data);
+        loadData();
+
+        // 连接 Socket.io
+        const apiUrl = 'http://localhost:4000'; // 确保与后端地址一致
+        socketRef.current = io(apiUrl);
+
+        socketRef.current.on('connect', () => {
+            console.log('✅ Dashboard Connected to Socket');
+        });
+
+        // 监听位置更新 (主要关注状态变化，如 delivered)
+        socketRef.current.on('position_update', (data: PositionUpdatePayload) => {
+            if (data.status === 'delivered') {
+                message.success(`订单 ${data.orderId} 已送达！`);
+                loadData(); // 重新加载数据
             }
         });
+
+        // 监听订单更新 (如 confirmed)
+        socketRef.current.on('order_updated', (data: { orderId: string; status: OrderStatus }) => {
+            message.info(`订单 ${data.orderId} 状态更新: ${data.status}`);
+            loadData(); // 重新加载数据
+        });
+
+        return () => {
+            if (socketRef.current) {
+                socketRef.current.disconnect();
+            }
+        };
     }, []);
 
     // 统计数据
