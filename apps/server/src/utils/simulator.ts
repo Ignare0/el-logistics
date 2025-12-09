@@ -95,7 +95,7 @@ const updateOrderMemory = (order: ServerOrder, payload: PositionUpdatePayload) =
 // 3. 主流程控制 (Controller Logic)
 // ==========================================
 
-export const startSimulation = async (io: Server, order: ServerOrder) => {
+export const startSimulation = async (io: Server, order: ServerOrder, startIndex: number = 0) => {
     if (!order.logistics?.plannedRoute) {
         console.error('❌ 无法启动模拟：缺少 plannedRoute');
         return;
@@ -108,11 +108,11 @@ export const startSimulation = async (io: Server, order: ServerOrder) => {
     if (activeTimers.get(id)) return;
     activeTimers.set(id, true);
 
-    console.log(`🚀 订单 ${id} 开始全链路模拟，共 ${routeNodes.length} 个节点`);
+    console.log(`🚀 订单 ${id} 开始全链路模拟，共 ${routeNodes.length} 个节点，从索引 ${startIndex} 开始`);
 
     try {
         // --- 循环每一段路 (Node A -> Node B) ---
-        for (let i = 0; i < routeNodes.length - 1; i++) {
+        for (let i = startIndex; i < routeNodes.length - 1; i++) {
             if (!activeTimers.get(id)) break;
 
             const currentNode = routeNodes[i];
@@ -132,6 +132,51 @@ export const startSimulation = async (io: Server, order: ServerOrder) => {
 
             console.log(`... 在 ${currentNode.name} 分拣中`);
             await wait(2000); // 模拟分拣耗时
+
+            // --- 新增: 检查是否需要用户选择配送方式 ---
+            // 假设倒数第二个节点是配送站点，最后一个节点是用户地址
+            // 当到达倒数第二个节点时，暂停并等待用户选择
+            const isLastHub = i === routeNodes.length - 2;
+            if (isLastHub && !order.deliveryMethod) {
+                console.log(`🛑 到达配送站点【${currentNode.name}】，等待用户选择配送方式...`);
+                
+                order.waitingForSelection = true;
+                const waitingPayload: PositionUpdatePayload = {
+                    orderId: id,
+                    lat: currentNode.location.lat,
+                    lng: currentNode.location.lng,
+                    status: 'waiting_for_selection',
+                    statusText: `🛑 包裹已到达【${currentNode.name}】，请选择配送方式`
+                };
+                
+                io.emit('position_update', waitingPayload);
+                // 不需要写入 timeline，只是临时状态
+                
+                // 暂停循环，等待回调唤醒
+                // 这里我们简单地退出循环，当用户调用 API 设置方式后，由 Controller 重新调用 startSimulation
+                // 但需要注意：重新调用时应该从当前位置继续
+                activeTimers.set(id, false); 
+                return;
+            }
+
+            // 如果已经选择了自提，并且当前就是配送站点（倒数第二个节点），则直接结束流程
+            if (isLastHub && order.deliveryMethod === 'STATION') {
+                 console.log(`🛑 用户选择自提，包裹留存【${currentNode.name}】`);
+                 const pickupPayload: PositionUpdatePayload = {
+                    orderId: id,
+                    lat: currentNode.location.lat,
+                    lng: currentNode.location.lng,
+                    status: 'delivered',
+                    statusText: `✅ 包裹已存入【${currentNode.name}】，请凭取件码取件`
+                };
+                io.emit('position_update', pickupPayload);
+                updateOrderMemory(order, pickupPayload);
+                activeTimers.set(id, false);
+                return;
+            }
+            
+            // 如果选择了送货上门 (HOME)，或者还没到最后一段，继续走下面的运输逻辑
+
 
             // --- 阶段 B: 准备运输配置 ---
             const mode = getTransportMode(currentNode, nextNode);

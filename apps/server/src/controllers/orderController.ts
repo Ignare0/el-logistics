@@ -152,3 +152,80 @@ export const confirmReceipt = (req: Request, res: Response) => {
 
     res.json(success(order, '确认收货成功'));
 };
+
+// --- 6. [新增] 设置配送方式 ---
+export const setDeliveryMethod = (req: Request, res: Response) => {
+    const { id } = req.params;
+    const { method } = req.body; // 'HOME' | 'STATION'
+
+    const order = orders.find(o => o.id === id);
+    if (!order) return res.status(404).json(error('订单不存在'));
+
+    if (!['HOME', 'STATION'].includes(method)) {
+        return res.status(400).json(error('无效的配送方式'));
+    }
+
+    // 更新配送方式
+    order.deliveryMethod = method;
+    order.waitingForSelection = false;
+    
+    // 记录事件
+    order.timeline.push({
+        status: 'shipping', // 保持 shipping 状态或自定义
+        description: method === 'HOME' ? '用户选择【送货上门】，准备派送' : '用户选择【自提】，包裹将存入站点',
+        timestamp: new Date().toISOString()
+    });
+
+    // 重新唤醒模拟器
+    const io = req.app.get('socketio');
+    
+    if (method === 'STATION') {
+        // 1. 设置状态为 DELIVERED (待取件)
+        order.status = OrderStatus.DELIVERED;
+        
+        // 2. 补充 Timeline (明确告知已存入)
+        order.timeline.push({
+            status: 'delivered',
+            description: '包裹已存入站点，请凭取件码取件',
+            timestamp: new Date().toISOString()
+        });
+
+        if (io) {
+            // 通知前端状态变化
+            io.emit('order_updated', {
+                orderId: id,
+                deliveryMethod: method,
+                status: OrderStatus.DELIVERED
+            });
+
+            // 强制发送一次位置更新，确保地图显示在站点
+            const route = order.logistics.plannedRoute!;
+            const station = route[route.length - 2];
+            io.emit('position_update', {
+                orderId: id,
+                lat: station.location.lat,
+                lng: station.location.lng,
+                status: 'delivered',
+                statusText: '✅ 包裹已存入站点，请凭取件码取件'
+            });
+        }
+        // ❌ 关键修复：自提模式下，不要调用 startSimulation
+        
+    } else {
+        // method === 'HOME'
+        if (io) {
+            io.emit('order_updated', {
+                orderId: id,
+                deliveryMethod: method
+            });
+            
+            // ✅ 关键修复：送货上门模式，从站点位置 (倒数第二个节点) 继续模拟
+            const route = order.logistics.plannedRoute!;
+            // 确保索引不越界
+            const resumeIndex = Math.max(0, route.length - 2);
+            startSimulation(io, order, resumeIndex);
+        }
+    }
+
+    res.json(success(order, '配送方式设置成功'));
+};

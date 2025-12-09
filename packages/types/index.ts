@@ -52,6 +52,8 @@ export interface Order {
     eta?: string;
     startCity?: string;
     endCity?: string;
+    deliveryMethod?: 'HOME' | 'STATION';
+    waitingForSelection?: boolean;
 
     // 这里的类型必须和上面定义的一致
     timeline: TimelineEvent[];
@@ -79,7 +81,7 @@ export interface PositionUpdatePayload {
     orderId: string;
     lat: number;
     lng: number;
-    status: 'arrived_node' | 'shipping' | 'delivered';
+    status: 'arrived_node' | 'shipping' | 'delivered' | 'waiting_for_selection';
     statusText: string;
     transport?: 'AIR' | 'TRUNK' | 'DELIVERY';
     zoom?: number;

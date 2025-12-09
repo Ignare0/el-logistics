@@ -4,7 +4,8 @@ import {
     getOrderById,
     shipOrder,
     createOrder,
-    confirmReceipt
+    confirmReceipt,
+    setDeliveryMethod
 } from '../controllers/orderController';
 
 const router = Router();
@@ -17,5 +18,6 @@ router.get('/:id', getOrderById);       // 获取详情
 router.post('/', createOrder);          // 创建订单 (Admin用)
 router.post('/:id/ship', shipOrder);    // 发货 (Admin用)
 router.post('/:id/confirm', confirmReceipt); // 确认收货 (Mobile用)
+router.post('/:id/delivery-method', setDeliveryMethod); // 设置配送方式 (Mobile用)
 
 export default router;

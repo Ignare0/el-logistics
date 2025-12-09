@@ -48,3 +48,22 @@ export const confirmOrderReceipt = async (id: string): Promise<Order | null> => 
         return null;
     }
 };
+
+export const setDeliveryMethod = async (id: string, method: 'HOME' | 'STATION'): Promise<Order | null> => {
+    try {
+        const res = await fetch(`${API_URL}/orders/${id}/delivery-method`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ method }),
+            cache: 'no-store'
+        });
+        if (!res.ok) return null;
+        const json = (await res.json()) as ApiResponse<Order>;
+        return json.code === 200 ? json.data : null;
+    } catch (e) {
+        console.error('设置配送方式失败', e);
+        return null;
+    }
+};
