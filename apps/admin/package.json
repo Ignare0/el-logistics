@@ -10,10 +10,13 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@amap/amap-jsapi-loader": "^1.0.1",
     "@ant-design/icons": "^6.1.0",
     "@el/types": "workspace:*",
     "antd": "^6.0.0",
     "axios": "^1.13.2",
+    "echarts": "^6.0.0",
+    "echarts-for-react": "^3.0.5",
     "react": "^19.2.0",
     "react-dom": "^19.2.0"
   },
