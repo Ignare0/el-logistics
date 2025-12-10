@@ -82,6 +82,7 @@ declare namespace AMap {
         constructor(options?: PolylineOptions);
         setMap(map: Map | null): void;
         setPath(path: [number, number][]): void;
+        getPath(): [number, number][];
         hide(): void;
         show(): void;
     }

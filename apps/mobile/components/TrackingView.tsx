@@ -26,10 +26,12 @@ interface Props {
 export default function TrackingView({ initialOrder, id }: Props) {
     const router = useRouter();
     const [phone, setPhone] = useState<string>('');
+    const [phoneLoaded, setPhoneLoaded] = useState(false);
 
     useEffect(() => {
         const saved = typeof window !== 'undefined' ? window.localStorage.getItem('customer_phone') : '';
         if (saved) setPhone(saved);
+        setPhoneLoaded(true);
     }, []);
 
     const orderId = initialOrder?.id || id!;
@@ -100,17 +102,13 @@ export default function TrackingView({ initialOrder, id }: Props) {
     }, [order, updateAction, mutate]);
 
     // ✅ 处理 SWR 加载和错误状态
-    useEffect(() => {
-        if (!phone) {
-            const timer = setTimeout(() => router.push('/'), 3000);
-            return () => clearTimeout(timer);
-        }
-    }, [phone, router]);
-
-    if (!phone) return <div className="p-10 text-center">订单不存在（未设置手机号），3 秒后返回首页</div>;
-    if (error || (!swrOrder && !initialOrder)) {
-        setTimeout(() => router.push('/'), 3000);
-        return <div className="p-10 text-center">订单不存在，3 秒后返回首页</div>;
+    // 仅在手机号已加载且明确 404 时返回首页
+    if (phoneLoaded && phone && (error || (!swrOrder && !initialOrder))) {
+        return <div className="p-10 text-center">订单不存在</div>;
+    }
+    // 未设置手机号时，提示用户而不自动跳转，避免误返回首页
+    if (phoneLoaded && !phone) {
+        return <div className="p-10 text-center">请先在首页输入手机号以查看订单</div>;
     }
     // 如果 store 中还没有数据（初始化期间），可以显示一个加载状态
     if (!order) return <div className="p-10 text-center text-gray-500">正在准备物流信息...</div>;

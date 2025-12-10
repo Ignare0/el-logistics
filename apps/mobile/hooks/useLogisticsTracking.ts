@@ -66,20 +66,27 @@ export const useLogisticsTracking = ({ map, AMap, orderId, startPoint, initialPa
             
             // ✅ 监听 marker 移动，实现“货物牵引路线”效果
             carMarkerRef.current.on('moving', (e: any) => {
-                // 如果不再追踪（如已送达），停止更新轨迹
                 if (!shouldTrackRouteRef.current || !passedPolylineRef.current) return;
-                
                 const currentPos = e.target.getPosition();
-                // 实时更新路径：历史路径 + 当前移动点
-                passedPolylineRef.current.setPath([...pathRef.current, [currentPos.lng, currentPos.lat]]);
+                const polyPath = passedPolylineRef.current.getPath();
+                const last = polyPath[polyPath.length - 1];
+                const lng = currentPos.lng;
+                const lat = currentPos.lat;
+                if (!last || last[0] !== lng || last[1] !== lat) {
+                    passedPolylineRef.current.setPath([...polyPath, [lng, lat]]);
+                }
             });
 
             carMarkerRef.current.on('moveend', () => {
                 if (!shouldTrackRouteRef.current || !passedPolylineRef.current || !carMarkerRef.current) return;
-                
                 const currentPos = carMarkerRef.current.getPosition();
-                // 移动结束，将当前点固定到历史路径中
-                pathRef.current.push([currentPos.lng, currentPos.lat]);
+                const lng = currentPos.lng;
+                const lat = currentPos.lat;
+                const lastFixed = pathRef.current[pathRef.current.length - 1];
+                if (!lastFixed || lastFixed[0] !== lng || lastFixed[1] !== lat) {
+                    pathRef.current.push([lng, lat]);
+                }
+                // 将临时累积的路径收敛为固定路径，避免重复
                 passedPolylineRef.current.setPath(pathRef.current);
             });
 
@@ -95,8 +102,17 @@ export const useLogisticsTracking = ({ map, AMap, orderId, startPoint, initialPa
             socketRef.current.on('position_update', (data: PositionUpdatePayload) => {
                 if (data.orderId !== orderId) return;
 
-                // ✅ 状态检查：如果是返程、送达或取消，停止绘制轨迹
-                if (data.status === 'returning' || data.status === 'delivered' || data.status === 'cancelled') {
+                // ✅ 状态检查
+                const isReturning = data.status === 'returning' || data.status === 'rider_idle';
+                const isTerminal = data.status === 'delivered' || data.status === 'cancelled';
+
+                // 返程在移动端不展示：不移动、不更新
+                if (isReturning) {
+                    shouldTrackRouteRef.current = false;
+                    return;
+                }
+
+                if (isTerminal) {
                     shouldTrackRouteRef.current = false;
                 }
 
@@ -115,7 +131,7 @@ export const useLogisticsTracking = ({ map, AMap, orderId, startPoint, initialPa
                     }
                 }
 
-                // ✅ 直接调用 store action 来更新全局状态
+                // ✅ 同步到状态（忽略返程）
                 updateFromSocket(data);
             });
         }
