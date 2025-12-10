@@ -95,8 +95,9 @@ const Dashboard: React.FC = () => {
     const returningRidersCount = returningOrders.length;
 
     // Mock total pool size (e.g. 10 base + any extras)
-    const totalRiders = Math.max(10, busyRidersCount + returningRidersCount + 2); 
-    const idleRiders = totalRiders - busyRidersCount - returningRidersCount;
+    const totalRidersCap = 10;
+    const totalRiders = Math.min(totalRidersCap, busyRidersCount + returningRidersCount + 2);
+    const idleRiders = Math.max(0, totalRiders - busyRidersCount - returningRidersCount);
     
     // 2. Core Metrics
     const pendingOrders = orders.filter(o => o.status === OrderStatus.PENDING).length;
@@ -175,40 +176,7 @@ const Dashboard: React.FC = () => {
         }]
     };
 
-    // Dual Axis: Orders vs Time (Mock Data for trend - could be calculated from orders if timestamps exist)
-    // Dynamic generation based on orders creation time
-    const trendData = useMemo(() => {
-        const hours = ['8:00', '10:00', '12:00', '14:00', '16:00', '18:00', '20:00'];
-        const volume = [0, 0, 0, 0, 0, 0, 0];
-        orders.forEach(o => {
-            const h = new Date(o.createdAt).getHours();
-            if (h >= 8 && h < 10) volume[0]++;
-            else if (h >= 10 && h < 12) volume[1]++;
-            else if (h >= 12 && h < 14) volume[2]++;
-            else if (h >= 14 && h < 16) volume[3]++;
-            else if (h >= 16 && h < 18) volume[4]++;
-            else if (h >= 18 && h < 20) volume[5]++;
-            else if (h >= 20) volume[6]++;
-        });
-        // Mock baseline to look good
-        const finalVolume = volume.map(v => v + 10 + Math.floor(Math.random() * 20));
-        return finalVolume;
-    }, [orders]);
-
-    const trendOption = {
-        tooltip: { trigger: 'axis', axisPointer: { type: 'cross' } },
-        grid: { right: '20%' },
-        legend: { data: ['单量', '平均耗时'] },
-        xAxis: [{ type: 'category', axisTick: { alignWithLabel: true }, data: ['8:00', '10:00', '12:00', '14:00', '16:00', '18:00', '20:00'] }],
-        yAxis: [
-            { type: 'value', name: '单量', position: 'left', axisLine: { show: true, lineStyle: { color: '#5470C6' } } },
-            { type: 'value', name: '耗时(分)', position: 'right', axisLine: { show: true, lineStyle: { color: '#91CC75' } } }
-        ],
-        series: [
-            { name: '单量', type: 'bar', data: trendData },
-            { name: '平均耗时', type: 'line', yAxisIndex: 1, data: [25, 28, 35, 26, 28, 45, 50] }
-        ]
-    };
+    
 
     return (
         <div className="p-6 bg-gray-50 min-h-screen">
@@ -279,6 +247,8 @@ const Dashboard: React.FC = () => {
                     </Card>
                 </Col>
             </Row>
+
+            
         </div>
     );
 };

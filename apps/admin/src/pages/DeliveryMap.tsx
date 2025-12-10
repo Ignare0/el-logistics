@@ -21,7 +21,7 @@ const DeliveryMap: React.FC = () => {
     // ✅ Unified Marker Management (Replacing Array with Map for better updates)
     const markerMapRef = useRef<Map<string, any>>(new Map());
     const markersRef = useRef<any[]>([]); // ✅ Added missing markersRef for order markers
-    const polylineMapRef = useRef<Map<string, any>>(new Map()); 
+    
     const batchRouteLayerRef = useRef<any[]>([]); 
 
     const stationMarkerRef = useRef<any>(null);
@@ -234,28 +234,22 @@ const DeliveryMap: React.FC = () => {
             const AMap = window.AMap;
             const map = mapRef.current;
 
-            // Clear previous route
             batchRouteLayerRef.current.forEach(overlay => map.remove(overlay));
             batchRouteLayerRef.current = [];
 
             const routes = data.routes;
             if (!routes || routes.length === 0) return;
 
-            console.log(`🎨 绘制 ${routes.length} 条智能调度路径`);
-
             const riderColors = ['#1890ff', '#722ed1', '#fa541c', '#13c2c2', '#eb2f96'];
 
             routes.forEach((points, riderIdx) => {
                 if (!points || points.length < 2) return;
-                
                 const baseColor = riderColors[riderIdx % riderColors.length];
 
-                // Draw Segments
                 for (let i = 0; i < points.length - 1; i++) {
                     const current = points[i];
                     const next = points[i+1];
-                    const isUrgentPath = next.type === 'urgent'; 
-                    
+                    const isUrgentPath = next.type === 'urgent';
                     const polyline = new AMap.Polyline({
                         path: [[current.lng, current.lat], [next.lng, next.lat]],
                         strokeColor: isUrgentPath ? '#cf1322' : baseColor,
@@ -269,10 +263,8 @@ const DeliveryMap: React.FC = () => {
                     batchRouteLayerRef.current.push(polyline);
                 }
 
-                // Draw Sequence Markers
-                points.forEach((p: any, idx: number) => {
-                    if (p.type === 'station') return; 
-                    
+                points.forEach((p: any) => {
+                    if (p.type === 'station') return;
                     const content = `
                         <div style="
                             background-color: ${p.type === 'urgent' ? '#cf1322' : baseColor};
@@ -286,10 +278,9 @@ const DeliveryMap: React.FC = () => {
                             font-family: Arial;
                         ">${p.sequence}</div>
                     `;
-                    
                     const marker = new AMap.Marker({
                         position: [p.lng, p.lat],
-                        content: content,
+                        content,
                         offset: new AMap.Pixel(-12, -30),
                         zIndex: 210
                     });
@@ -299,11 +290,9 @@ const DeliveryMap: React.FC = () => {
             });
 
             map.setFitView(batchRouteLayerRef.current, false, [50, 50, 50, 50]);
-            
-            setTimeout(() => {
-                 batchRouteLayerRef.current.forEach(overlay => map.remove(overlay));
-                 batchRouteLayerRef.current = [];
-            }, 15000);
+            try {
+                localStorage.setItem('last_multi_routes', JSON.stringify(routes));
+            } catch {}
         });
     };
 
@@ -409,6 +398,55 @@ const DeliveryMap: React.FC = () => {
 
             // 标记地图已准备就绪
             setIsMapReady(true);
+            const savedRoutes = localStorage.getItem('last_multi_routes');
+            if (savedRoutes) {
+                try {
+                    const routes = JSON.parse(savedRoutes);
+                    const AMap = window.AMap;
+                    const map = mapRef.current;
+                    const riderColors = ['#1890ff', '#722ed1', '#fa541c', '#13c2c2', '#eb2f96'];
+                    routes.forEach((points: any[], riderIdx: number) => {
+                        if (!points || points.length < 2) return;
+                        const baseColor = riderColors[riderIdx % riderColors.length];
+                        for (let i = 0; i < points.length - 1; i++) {
+                            const current = points[i];
+                            const next = points[i+1];
+                            const isUrgentPath = next.type === 'urgent';
+                            const polyline = new AMap.Polyline({
+                                path: [[current.lng, current.lat], [next.lng, next.lat]],
+                                strokeColor: isUrgentPath ? '#cf1322' : baseColor,
+                                strokeWeight: 6,
+                                strokeStyle: "solid",
+                                lineJoin: 'round',
+                                zIndex: 200,
+                                showDir: true
+                            });
+                            map.add(polyline);
+                            batchRouteLayerRef.current.push(polyline);
+                        }
+                        points.forEach((p: any) => {
+                            if (p.type === 'station') return;
+                            const content = `
+                                <div style="
+                                    background-color: ${p.type === 'urgent' ? '#cf1322' : baseColor};
+                                    color: white;
+                                    width: 24px; height: 24px;
+                                    border-radius: 50%;
+                                    text-align: center; line-height: 24px;
+                                    font-weight: bold;
+                                    border: 2px solid white;
+                                    box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+                                    font-family: Arial;
+                                ">${p.sequence}</div>
+                            `;
+                            const marker = new AMap.Marker({ position: [p.lng, p.lat], content, offset: new AMap.Pixel(-12, -30), zIndex: 210 });
+                            map.add(marker);
+                            batchRouteLayerRef.current.push(marker);
+                        });
+                    });
+                    map.setFitView(batchRouteLayerRef.current, false, [50, 50, 50, 50]);
+                } catch {}
+            }
         }).catch((e) => {
             console.error('Map loading failed', e);
         });

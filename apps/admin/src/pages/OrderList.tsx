@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Table, Tag, Button, Card, message, Space, Popover, Typography, Modal } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
-import { fetchOrders, shipOrder, cancelOrder } from '../services/orderService';
+import { fetchOrders, shipOrder } from '../services/orderService';
 import { Order, OrderStatus, OrderStatusMap } from '@el/types';
 import CreateOrderModal from './CreateOrderModal';
 import { useMerchant } from '../contexts/MerchantContext';
@@ -94,26 +94,7 @@ const OrderList: React.FC = () => {
         }
     };
 
-    const handleCancel = async (id: string) => {
-        setActionLoading(id);
-        try {
-            const res = await cancelOrder(id);
-            if (res.code === 200) {
-                message.success('订单已取消');
-                // 更新列表
-                setOrders(prev => prev.map(item =>
-                    item.id === id ? { ...item, status: OrderStatus.CANCELLED } : item
-                ));
-            } else {
-                message.error(res.msg || '取消失败');
-            }
-        } catch (error) {
-            console.error(error);
-            message.error('系统错误');
-        } finally {
-            setActionLoading(null);
-        }
-    };
+    
 
     const handleForceDispatch = (record: Order) => {
         Modal.confirm({
@@ -143,21 +124,19 @@ const OrderList: React.FC = () => {
             sorter: (a, b) => (a.priorityScore || 0) - (b.priorityScore || 0),
             render: (score: number, record) => {
                 let color = 'green';
-                let icon = null;
                 if (score >= 60) {
                     color = 'red';
-                    icon = <FireOutlined spin />;
                 } else if (score >= 30) {
                     color = 'orange';
                 }
                 
                 return (
-                    <Space>
-                        <Tag color={color} style={{ fontWeight: 'bold' }}>
-                            {score || 0}分
-                        </Tag>
-                        {record.isUrged && <Tag color="red" icon={<FireOutlined />}>催单</Tag>}
-                    </Space>
+                <Space>
+                    <Tag color={color} style={{ fontWeight: 'bold' }}>
+                        {score || 0}分
+                    </Tag>
+                    {record.isUrged && <Tag color="red" icon={<FireOutlined />}>催单</Tag>}
+                </Space>
                 );
             }
         },
