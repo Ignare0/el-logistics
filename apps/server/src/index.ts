@@ -56,8 +56,7 @@ app.get('/', (req, res) => {
     res.send('Logistics Backend is Running!');
 });
 
-// 4. 启动服务 (注意：我们用 4000 端口)
-const PORT = 4000;
+const PORT = Number(process.env.PORT) || 4000;
 httpServer.listen(PORT, () => {
     console.log(`✅ 后端服务已启动: http://localhost:${PORT}`);
 });
