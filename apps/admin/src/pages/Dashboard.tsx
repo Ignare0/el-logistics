@@ -33,7 +33,7 @@ const Dashboard: React.FC = () => {
     }, [currentMerchant]);
 
     useEffect(() => {
-        const apiUrl = 'http://localhost:4000';
+        const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:4000';
         socketRef.current = io(apiUrl);
 
         socketRef.current.on('connect', () => {

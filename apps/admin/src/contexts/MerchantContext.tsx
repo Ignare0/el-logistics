@@ -19,7 +19,8 @@ export const MerchantProvider = ({ children }: { children: ReactNode }) => {
         // 获取商家列表
         const fetchMerchants = async () => {
             try {
-                const res = await fetch('http://localhost:4000/api/merchants');
+                const apiBase = import.meta.env.VITE_API_URL || 'http://localhost:4000';
+                const res = await fetch(`${apiBase}/api/merchants`);
                 const json = await res.json();
                 if (json.code === 200 && json.data.length > 0) {
                     setMerchants(json.data);
