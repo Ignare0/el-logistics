@@ -4,7 +4,7 @@ import { OrderStatus, TimelineEvent } from '@el/types';
 import { ServerOrder } from '../types/internal';
 import { startSimulation, startBatchSimulation } from "../utils/simulator";
 import { planLogisticsRoute } from '../services/logisticsService';
-import { optimizeBatchRoute } from '../utils/routeOptimizer';
+import { optimizeBatchRoute, distributeOrders } from '../utils/routeOptimizer';
 import { NODES } from '../mock/nodes';
 import { orders } from '../mock/orders';
 import { LogisticsNode } from '../domain/Node';
@@ -63,7 +63,6 @@ export const dispatchBatchOrders = (req: Request, res: Response) => {
 
     // 3. 启动批量模拟
     // 假设起点都是三里屯配送站 (Station Node)
-    // 实际上应该从 DB 或 Config 获取，这里 Mock 一个
     const stationNode: LogisticsNode = {
         id: 'STATION_SLT',
         name: '三里屯配送站',
@@ -71,25 +70,58 @@ export const dispatchBatchOrders = (req: Request, res: Response) => {
         location: { lat: 39.9373, lng: 116.4551 }
     };
 
-    // 3.1 智能路径规划 (TSP) - 计算最优配送顺序
-    console.log('🔄 正在计算最优配送路径 (TSP)...');
-    const sortedOrders = optimizeBatchRoute(stationNode, selectedOrders);
+    // 3.1 智能调度：分配骑手与路径规划
+    console.log('🔄 正在进行多骑手智能调度 (K-means + TSP)...');
     
-    // 打印规划结果
-    console.log('✅ 路径规划完成，配送顺序:');
-    sortedOrders.forEach((o, index) => {
-        console.log(`   ${index + 1}. ${o.customer.address} (订单号: ${o.id})`);
+    // 假设有 5 个空闲骑手可用（或者根据订单量动态分配）
+    const availableRiders = Math.max(2, Math.min(5, Math.ceil(selectedOrders.length / 2)));
+    const orderBatches = distributeOrders(stationNode, selectedOrders, availableRiders);
+
+    console.log(`✅ 调度完成，共分配 ${orderBatches.length} 位骑手并发配送`);
+
+    const allRoutePoints: any[] = [];
+
+    // 遍历每个批次（每位骑手）
+    orderBatches.forEach((batchOrders, riderIdx) => {
+        console.log(`🛵 骑手 ${riderIdx + 1} 配送顺序:`);
+        batchOrders.forEach((o, index) => {
+            console.log(`   ${index + 1}. ${o.customer.address} (订单号: ${o.id})`);
+        });
+
+        // 构建该骑手的路径可视化数据
+        const batchPoints = [
+            { lat: stationNode.location.lat, lng: stationNode.location.lng, type: 'station', name: stationNode.name, riderIndex: riderIdx },
+            ...batchOrders.map((o, idx) => ({
+                lat: o.logistics.endLat,
+                lng: o.logistics.endLng,
+                type: (o as any).priorityScore >= 80 || (o as any).isUrged || o.serviceLevel === 'EXPRESS' ? 'urgent' : 'normal',
+                name: o.customer.address,
+                orderId: o.id,
+                sequence: idx + 1,
+                riderIndex: riderIdx // 标记属于哪个骑手
+            })),
+            { lat: stationNode.location.lat, lng: stationNode.location.lng, type: 'station', name: stationNode.name, riderIndex: riderIdx }
+        ];
+        allRoutePoints.push(batchPoints);
+
+        // 异步启动该骑手的模拟任务
+        startBatchSimulation(io, batchOrders, stationNode);
     });
 
-    // 异步启动模拟，不阻塞 Response
-    // 注意：这里传入 sortedOrders，确保骑手按照最优路径配送
-    startBatchSimulation(io, sortedOrders, stationNode);
+    // --- 推送可视化路径给前端 ---
+    // 发送的是数组的数组，前端需要支持绘制多条线
+    io.emit('batch_route_planned', { routePoints: allRoutePoints }); // 注意：这里改为了 routePoints 包含多条路径数组，或者我们扁平化发送？
+    // 为了兼容性，我们可以改个名字或者让前端判断。
+    // 既然我们控制前端，直接改结构最清晰。
+    // Payload: { routes: [ [Points...], [Points...] ] }
+    io.emit('multi_route_planned', { routes: allRoutePoints });
 
     res.json(success({ 
         dispatchedCount: selectedOrders.length,
+        riderCount: orderBatches.length,
         notFoundIds,
-        routeSequence: sortedOrders.map(o => o.id) // 返回排序后的ID列表
-    }, `成功调度 ${selectedOrders.length} 个订单，路径已优化`));
+        routeSequence: orderBatches.map(batch => batch.map(o => o.id)) 
+    }, `成功调度 ${selectedOrders.length} 个订单，分配给 ${orderBatches.length} 位骑手`));
 };
 
 const sortOrderTimeline = (order: ServerOrder) => {

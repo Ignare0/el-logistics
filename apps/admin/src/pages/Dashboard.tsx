@@ -12,7 +12,6 @@ import {
 } from '@ant-design/icons';
 import { io, Socket } from 'socket.io-client';
 import { useMerchant } from '../contexts/MerchantContext';
-import AMapLoader from '@amap/amap-jsapi-loader';
 
 const { Title, Text } = Typography;
 
@@ -21,12 +20,6 @@ const Dashboard: React.FC = () => {
     const socketRef = useRef<Socket | null>(null);
     const { currentMerchant } = useMerchant();
     
-    // Map Refs
-    const mapRef = useRef<any>(null);
-    const markerMapRef = useRef<Map<string, any>>(new Map());
-    const polylineMapRef = useRef<Map<string, any>>(new Map()); // ✅ Store Polylines
-    const AMapRef = useRef<any>(null);
-
     const loadData = async () => {
         if (!currentMerchant) return;
         const res = await fetchOrders({ merchantId: currentMerchant.id });
@@ -38,171 +31,6 @@ const Dashboard: React.FC = () => {
     useEffect(() => {
         loadData();
     }, [currentMerchant]);
-
-    // Initialize Map
-    useEffect(() => {
-        AMapLoader.load({
-            key: '9ed0e07b10c4a6c7516db4f0b3f01d3f', // Correct key from DeliveryMap
-            version: '2.0',
-            plugins: ['AMap.MoveAnimation']
-        }).then((AMap) => {
-            AMapRef.current = AMap;
-            const map = new AMap.Map('dashboard-map', {
-                center: [116.4551, 39.9373], // Default Beijing Sanlitun
-                zoom: 13,
-                mapStyle: 'amap://styles/darkblue', // Dark mode for "Command Center" feel
-                viewMode: '3D',
-                pitch: 45,
-            });
-            mapRef.current = map;
-
-            // Add Station Marker
-            const stationMarker = new AMap.Marker({
-                position: [116.4551, 39.9373],
-                content: '<div style="font-size: 24px;">🏢</div>',
-                offset: new AMap.Pixel(-15, -15),
-                title: '配送站'
-            });
-            map.add(stationMarker);
-        }).catch(e => {
-            console.error('Map load failed', e);
-        });
-
-        return () => {
-            if (mapRef.current) {
-                mapRef.current.destroy();
-            }
-        };
-    }, []);
-
-    // Update Map Markers
-    useEffect(() => {
-        if (!mapRef.current || !AMapRef.current) return;
-        
-        const AMap = AMapRef.current;
-        const map = mapRef.current;
-        const markerMap = markerMapRef.current;
-        const polylineMap = polylineMapRef.current;
-        
-        // Track which IDs are currently active to remove old ones
-        const activeIds = new Set<string>();
-
-        orders.forEach(order => {
-            activeIds.add(order.id);
-            
-            // Determine position: Current for Shipping, End for others
-            // For PENDING: Show Destination (Target)
-            // For SHIPPING: Show Rider (Moving) AND Destination AND Line
-            // For DELIVERED: Show Destination (Green)
-            
-            // 1. Destination Marker (Customer)
-            const destId = `dest-${order.id}`;
-            const destPos = [order.logistics.endLng, order.logistics.endLat];
-            
-            if (!markerMap.has(destId)) {
-                const content = `
-                    <div style="
-                        width: 10px; height: 10px; 
-                        background: ${order.status === OrderStatus.PENDING ? '#ff4d4f' : order.status === OrderStatus.DELIVERED ? '#52c41a' : '#1890ff'};
-                        border-radius: 50%; border: 2px solid white; box-shadow: 0 0 5px rgba(0,0,0,0.5);
-                    "></div>
-                `;
-                const marker = new AMap.Marker({
-                    position: destPos,
-                    content: content,
-                    offset: new AMap.Pixel(-5, -5),
-                    zIndex: 10
-                });
-                map.add(marker);
-                markerMap.set(destId, marker);
-            }
-            activeIds.add(destId);
-
-            // 2. Rider Marker & Line (SHIPPING or RETURNING)
-            // Show rider if SHIPPING or RETURNING
-            const showRider = order.status === OrderStatus.SHIPPING || order.isReturning;
-
-            if (showRider && order.logistics.currentLng) {
-                const riderId = `rider-${order.id}`;
-                const lineId = `line-${order.id}`;
-                const riderPos = [order.logistics.currentLng, order.logistics.currentLat];
-                
-                // Rider Marker
-                if (!markerMap.has(riderId)) {
-                    const content = `
-                        <div style="font-size: 20px; transform: rotate(0deg);">🛵</div>
-                    `;
-                    const marker = new AMap.Marker({
-                        position: riderPos,
-                        content: content,
-                        offset: new AMap.Pixel(-10, -10),
-                        zIndex: 100,
-                        extData: { lineId, destPos } // Save relations
-                    });
-
-                    // Update line while moving
-                    marker.on('moving', (e: any) => {
-                        const currentPos = e.target.getPosition();
-                        const data = e.target.getExtData();
-                        const line = polylineMapRef.current.get(data.lineId);
-                        if (line && data.destPos) {
-                            line.setPath([currentPos, data.destPos]);
-                        }
-                    });
-
-                    map.add(marker);
-                    markerMap.set(riderId, marker);
-                } else {
-                    const marker = markerMap.get(riderId);
-                    // Update destPos just in case
-                    const ext = marker.getExtData();
-                    marker.setExtData({ ...ext, destPos });
-
-                    marker.moveTo(riderPos, {
-                        duration: 1000,
-                        autoRotation: false 
-                    });
-                }
-                activeIds.add(riderId);
-
-                // Connection Line (Rider -> Dest)
-                // Only show if SHIPPING (and NOT returning)
-                if (order.status === OrderStatus.SHIPPING && !order.isReturning) {
-                    if (!polylineMap.has(lineId)) {
-                        const polyline = new AMap.Polyline({
-                            path: [riderPos, destPos],
-                            strokeColor: "#1890ff", 
-                            strokeWeight: 2,
-                            strokeStyle: "dashed",
-                            strokeDasharray: [10, 5],
-                            zIndex: 50
-                        });
-                        map.add(polyline);
-                        polylineMap.set(lineId, polyline);
-                    } 
-                    // Don't update path immediately here, let the marker 'moving' event handle it
-                    
-                    activeIds.add(lineId);
-                }
-            }
-        });
-
-        // Cleanup removed markers & polylines
-        markerMap.forEach((marker, id) => {
-            if (!activeIds.has(id)) {
-                map.remove(marker);
-                markerMap.delete(id);
-            }
-        });
-        
-        polylineMap.forEach((poly, id) => {
-            if (!activeIds.has(id)) {
-                map.remove(poly);
-                polylineMap.delete(id);
-            }
-        });
-
-    }, [orders]);
 
     useEffect(() => {
         const apiUrl = 'http://localhost:4000';
@@ -421,46 +249,34 @@ const Dashboard: React.FC = () => {
                 </Col>
             </Row>
 
-            {/* Middle Row: Visual Core */}
+            {/* Middle Row: Status & Logs */}
             <Row gutter={16} className="mb-6">
-                {/* Left: Map Projection (Real Map) */}
-                <Col span={14}>
-                    <Card title="📍 实时区域监控" bordered={false} className="h-full" bodyStyle={{ padding: 0 }}>
-                        <div id="dashboard-map" style={{ width: '100%', height: '400px', borderRadius: '0 0 8px 8px' }}></div>
+                <Col span={12}>
+                    <Card title="骑手状态分布" bordered={false} className="h-full">
+                        <ReactECharts option={riderPieOption} style={{ height: '250px' }} />
                     </Card>
                 </Col>
-                
-                {/* Right: Status & Logs */}
-                <Col span={10}>
-                    <Row gutter={[0, 16]}>
-                        <Col span={24}>
-                            <Card title="骑手状态分布" bordered={false}>
-                                <ReactECharts option={riderPieOption} style={{ height: '200px' }} />
-                            </Card>
-                        </Col>
-                        <Col span={24}>
-                            <Card title="🚨 异常与动态监控" bordered={false} bodyStyle={{ padding: '0 12px' }}>
-                                <div className="h-[150px] overflow-y-auto custom-scrollbar">
-                                    <List
-                                        dataSource={abnormalOrders}
-                                        renderItem={item => (
-                                            <List.Item>
-                                                <List.Item.Meta
-                                                    avatar={
-                                                        item.type === 'urge' ? <Badge status="error" text="催" /> :
-                                                        item.type === 'timeout' ? <WarningOutlined style={{ color: 'red' }} /> :
-                                                        <CheckCircleOutlined style={{ color: 'green' }} />
-                                                    }
-                                                    title={<Text className="text-xs">{item.text}</Text>}
-                                                />
-                                            </List.Item>
-                                        )}
-                                    />
-                                    {abnormalOrders.length === 0 && <div className="text-center text-gray-400 py-4">暂无异常</div>}
-                                </div>
-                            </Card>
-                        </Col>
-                    </Row>
+                <Col span={12}>
+                    <Card title="🚨 异常与动态监控" bordered={false} className="h-full" bodyStyle={{ padding: '0 12px' }}>
+                        <div className="h-[250px] overflow-y-auto custom-scrollbar">
+                            <List
+                                dataSource={abnormalOrders}
+                                renderItem={item => (
+                                    <List.Item>
+                                        <List.Item.Meta
+                                            avatar={
+                                                item.type === 'urge' ? <Badge status="error" text="催" /> :
+                                                item.type === 'timeout' ? <WarningOutlined style={{ color: 'red' }} /> :
+                                                <CheckCircleOutlined style={{ color: 'green' }} />
+                                            }
+                                            title={<Text className="text-xs">{item.text}</Text>}
+                                        />
+                                    </List.Item>
+                                )}
+                            />
+                            {abnormalOrders.length === 0 && <div className="text-center text-gray-400 py-4">暂无异常</div>}
+                        </div>
+                    </Card>
                 </Col>
             </Row>
 

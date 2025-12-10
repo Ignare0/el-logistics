@@ -17,7 +17,13 @@ const DeliveryMap: React.FC = () => {
     const polyEditorRef = useRef<any>(null); // ✅ 编辑器引用
     const [hasPolygon, setHasPolygon] = useState(false); 
     const mouseToolRef = useRef<any>(null);
-    const markersRef = useRef<any[]>([]);
+    
+    // ✅ Unified Marker Management (Replacing Array with Map for better updates)
+    const markerMapRef = useRef<Map<string, any>>(new Map());
+    const markersRef = useRef<any[]>([]); // ✅ Added missing markersRef for order markers
+    const polylineMapRef = useRef<Map<string, any>>(new Map()); 
+    const batchRouteLayerRef = useRef<any[]>([]); 
+
     const stationMarkerRef = useRef<any>(null);
     const socketRef = useRef<Socket | null>(null);
     
@@ -79,8 +85,65 @@ const DeliveryMap: React.FC = () => {
     useEffect(() => {
         if (isMapReady && orders.length > 0) {
             updateMarkers(orders);
+            updateRiderMarkers(orders);
         }
     }, [isMapReady, orders]);
+
+    const updateRiderMarkers = (currentOrders: Order[]) => {
+        if (!mapRef.current || !window.AMap) return;
+        const AMap = window.AMap;
+        const map = mapRef.current;
+        
+        const activeIds = new Set<string>();
+
+        currentOrders.forEach(order => {
+            // Only care about active riders
+            if (order.status !== OrderStatus.SHIPPING && !order.isReturning) return;
+            if (!order.logistics?.currentLat || !order.logistics?.currentLng) return;
+
+            activeIds.add(order.id);
+
+            const position = [order.logistics.currentLng, order.logistics.currentLat];
+            
+            // Rider Marker
+            let marker = markerMapRef.current.get(order.id);
+            if (!marker) {
+                 const content = `
+                    <div style="
+                        background-color: white;
+                        width: 40px; height: 40px;
+                        border-radius: 50%;
+                        box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+                        display: flex; align-items: center; justify-content: center;
+                        font-size: 24px;
+                        border: 2px solid #1890ff;
+                        z-index: 300;
+                    ">
+                        🛵
+                    </div>
+                `;
+                marker = new AMap.Marker({
+                    position: position,
+                    content: content,
+                    offset: new AMap.Pixel(-20, -20),
+                    zIndex: 300, // Higher than destination
+                });
+                marker.setMap(map);
+                markerMapRef.current.set(order.id, marker);
+            } else {
+                marker.setPosition(position);
+                // Simple easing could be added here if needed
+            }
+        });
+
+        // Remove old rider markers
+        markerMapRef.current.forEach((marker, id) => {
+            if (!activeIds.has(id)) {
+                marker.setMap(null);
+                markerMapRef.current.delete(id);
+            }
+        });
+    };
 
     useEffect(() => {
         // 当按住 Ctrl 且工具已初始化时，开启绘图
@@ -119,9 +182,9 @@ const DeliveryMap: React.FC = () => {
             if (newOrder.deliveryType === 'LAST_MILE') {
                 message.info(`收到新订单: ${newOrder.customer.address}`);
                 setOrders(prev => {
-                    const next = [...prev, newOrder];
-                    // 延迟更新 Marker，避免 React 渲染冲突 (useEffect will handle this now via orders dependency)
-                    return next;
+                    // Check if already exists
+                    if (prev.find(o => o.id === newOrder.id)) return prev;
+                    return [...prev, newOrder];
                 });
             }
         });
@@ -132,7 +195,111 @@ const DeliveryMap: React.FC = () => {
                 const next = prev.map(o => o.id === updatedOrder.id ? updatedOrder : o);
                 return next;
             });
-            // message.info(`订单更新: ${updatedOrder.customer.address}`);
+        });
+
+        // ✅ 监听骑手位置更新
+        socketRef.current.on('position_update', (data: any) => {
+            setOrders(prev => prev.map(o => {
+                if (o.id === data.orderId) {
+                    const updates: any = {
+                        logistics: { ...o.logistics, currentLat: data.lat, currentLng: data.lng }
+                    };
+
+                    if (data.status === 'delivered') {
+                        updates.status = OrderStatus.DELIVERED;
+                    } else if (data.status === 'returning') {
+                        updates.isReturning = true;
+                    } else if (data.status === 'rider_idle') {
+                        updates.isReturning = false;
+                    }
+
+                    return { ...o, ...updates };
+                }
+                return o;
+            }));
+
+            if (data.status === 'delivered') {
+                // Refresh data to ensure consistency
+                loadOrders();
+            }
+        });
+
+        // ✅ 监听批量路径规划结果并绘制
+        socketRef.current.on('multi_route_planned', (data: { routes: any[][] }) => {
+            if (!mapRef.current || !window.AMap) return;
+            const AMap = window.AMap;
+            const map = mapRef.current;
+
+            // Clear previous route
+            batchRouteLayerRef.current.forEach(overlay => map.remove(overlay));
+            batchRouteLayerRef.current = [];
+
+            const routes = data.routes;
+            if (!routes || routes.length === 0) return;
+
+            console.log(`🎨 绘制 ${routes.length} 条智能调度路径`);
+
+            const riderColors = ['#1890ff', '#722ed1', '#fa541c', '#13c2c2', '#eb2f96'];
+
+            routes.forEach((points, riderIdx) => {
+                if (!points || points.length < 2) return;
+                
+                const baseColor = riderColors[riderIdx % riderColors.length];
+
+                // Draw Segments
+                for (let i = 0; i < points.length - 1; i++) {
+                    const current = points[i];
+                    const next = points[i+1];
+                    const isUrgentPath = next.type === 'urgent'; 
+                    
+                    const polyline = new AMap.Polyline({
+                        path: [[current.lng, current.lat], [next.lng, next.lat]],
+                        strokeColor: isUrgentPath ? '#cf1322' : baseColor,
+                        strokeWeight: 6,
+                        strokeStyle: "solid",
+                        lineJoin: 'round',
+                        zIndex: 200,
+                        showDir: true
+                    });
+                    map.add(polyline);
+                    batchRouteLayerRef.current.push(polyline);
+                }
+
+                // Draw Sequence Markers
+                points.forEach((p: any, idx: number) => {
+                    if (p.type === 'station') return; 
+                    
+                    const content = `
+                        <div style="
+                            background-color: ${p.type === 'urgent' ? '#cf1322' : baseColor};
+                            color: white;
+                            width: 24px; height: 24px;
+                            border-radius: 50%;
+                            text-align: center; line-height: 24px;
+                            font-weight: bold;
+                            border: 2px solid white;
+                            box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+                            font-family: Arial;
+                        ">${p.sequence}</div>
+                    `;
+                    
+                    const marker = new AMap.Marker({
+                        position: [p.lng, p.lat],
+                        content: content,
+                        offset: new AMap.Pixel(-12, -30),
+                        zIndex: 210
+                    });
+                    map.add(marker);
+                    batchRouteLayerRef.current.push(marker);
+                });
+            });
+
+            map.setFitView(batchRouteLayerRef.current, false, [50, 50, 50, 50]);
+            
+            setTimeout(() => {
+                 batchRouteLayerRef.current.forEach(overlay => map.remove(overlay));
+                 batchRouteLayerRef.current = [];
+            }, 15000);
         });
     };
 
@@ -439,11 +606,7 @@ const DeliveryMap: React.FC = () => {
         });
         
         setSelectedOrderIds(inIds);
-        if (inIds.length > 0) {
-            message.success(`已选中围栏内 ${inIds.length} 个订单，可进行批量发货`);
-        } else {
-            message.warning('围栏内没有待发货订单');
-        }
+        // Removed automatic message popups to prevent spamming
     };
 
     const clearFence = () => {
@@ -499,8 +662,21 @@ const DeliveryMap: React.FC = () => {
         }
     };
 
+    const handleManualCheck = () => {
+        checkOrdersInPolygon();
+        const count = selectedOrderIds.length;
+        if (count > 0) {
+            message.success(`已选中围栏内 ${count} 个订单`);
+        } else {
+            message.info('当前围栏内没有待发货订单');
+        }
+    };
+
     const handleBatchDispatch = async () => {
-        if (selectedOrderIds.length === 0) return;
+        if (selectedOrderIds.length === 0) {
+             message.warning('围栏内没有待发货订单');
+             return;
+        }
         message.loading({ content: '正在规划最优路线并指派骑手...', key: 'dispatch' });
         
         try {
@@ -535,12 +711,13 @@ const DeliveryMap: React.FC = () => {
                 <Space>
                     <Button onClick={startDraw}>1. 绘制电子围栏</Button>
                     {hasPolygon && <Button onClick={clearFence}>清除围栏</Button>}
+                    <Button onClick={handleManualCheck}>2. 刷新选中 ({selectedOrderIds.length})</Button>
                     <Button 
                         type="primary" 
                         disabled={selectedOrderIds.length === 0}
                         onClick={handleBatchDispatch}
                     >
-                        2. 智能调度发货 ({selectedOrderIds.length})
+                        3. 智能调度发货
                     </Button>
                 </Space>
             }
