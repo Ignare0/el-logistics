@@ -15,7 +15,6 @@
   "type": "commonjs",
   "dependencies": {
     "@el/types": "workspace:*",
-    "@prisma/client": "^6.19.0",
     "axios": "^1.13.2",
     "cors": "^2.8.5",
     "dotenv": "^16.4.7",
@@ -28,11 +27,15 @@
     "@types/express": "^5.0.5",
     "@types/jest": "^30.0.0",
     "@types/node": "^24.10.1",
-    "nodemon": "^3.1.11",
-    "prisma": "^6.19.0",
+    "jest": "^30.2.0",
     "ts-jest": "^29.4.6",
-    "ts-node": "^10.9.2",
     "tsx": "^4.21.0",
     "typescript": "^5.9.3"
+  },
+  "jest": {
+    "preset": "ts-jest",
+    "testEnvironment": "node",
+    "testMatch": ["**/?(*.)+(test).ts"],
+    "roots": ["<rootDir>/src"]
   }
 }
