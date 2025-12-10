@@ -1,10 +1,10 @@
 'use client';
 
-import React, { useEffect, useCallback, useState } from 'react';
+import React, { useEffect, useCallback } from 'react';
 import { Order, OrderStatus } from '@el/types';
 import dynamic from 'next/dynamic';
 import useSWR from 'swr';
-import { confirmOrderReceipt, fetcher, setDeliveryMethod } from '@/utils/api';
+import { confirmOrderReceipt, fetcher, urgeOrder } from '@/utils/api';
 import { TrackingHeader } from './TrackingHeader';
 import { TrackingTimeline } from './TrackingTimeline';
 import { useOrderStore, useOrderActions } from '@/stores/orderStore'; // ✅ 引入 Zustand store
@@ -23,11 +23,10 @@ interface Props {
 
 export default function TrackingView({ initialOrder }: Props) {
     const { id } = initialOrder;
-    const [showDeliveryChoice, setShowDeliveryChoice] = useState(false);
 
     // ✅ 使用 SWR 获取最新的数据，并进行自动刷新
     // fallbackData 保证了即使客户端请求失败，页面也能展示服务端传来的初始数据
-    const { data: swrOrder, error } = useSWR(`/orders/${id}`, () => fetcher<Order>(`${process.env.NEXT_PUBLIC_API_URL}/orders/${id}`), {
+    const { data: swrOrder, error, mutate } = useSWR(`/orders/${id}`, () => fetcher<Order>(`${process.env.NEXT_PUBLIC_API_URL}/orders/${id}`), {
         fallbackData: initialOrder,
         refreshInterval: 30000 // 每 30 秒自动刷新一次数据
     });
@@ -35,23 +34,25 @@ export default function TrackingView({ initialOrder }: Props) {
     // ✅ 从 Zustand store 获取实时更新的数据和距离
     const order = useOrderStore((state) => state.order);
     const distance = useOrderStore((state) => state.distance);
-    const { setInitialOrder, confirmReceipt: confirmAction } = useOrderActions();
+    const { setInitialOrder, confirmReceipt: confirmAction, updateOrder: updateAction, reset } = useOrderActions();
+
+    // ✅ 当组件卸载时重置 store，防止下一个页面看到旧数据
+    useEffect(() => {
+        return () => {
+            reset();
+        };
+    }, [reset]);
 
     // ✅ 当 SWR 获取到数据后，用它来初始化/更新我们的 store
     useEffect(() => {
         if (swrOrder) {
+            // 如果当前 store 中的订单 ID 与新数据不同，说明是切换了订单，先重置一下比较安全
+             if (order && order.id !== swrOrder.id) {
+                reset();
+             }
             setInitialOrder(swrOrder);
         }
-    }, [swrOrder, setInitialOrder]);
-
-    // 监听 order.waitingForSelection 状态
-    useEffect(() => {
-        if (order?.waitingForSelection) {
-            setShowDeliveryChoice(true);
-        } else {
-            setShowDeliveryChoice(false);
-        }
-    }, [order?.waitingForSelection]);
+    }, [swrOrder, setInitialOrder, reset]); // eslint-disable-line react-hooks/exhaustive-deps
 
     // ✅ 确认收货的逻辑
     const handleConfirm = useCallback(async () => {
@@ -59,19 +60,19 @@ export default function TrackingView({ initialOrder }: Props) {
         const updatedOrder = await confirmOrderReceipt(order.id);
         if (updatedOrder) {
             confirmAction(updatedOrder); // 调用 store action 更新状态
+            mutate(updatedOrder, false); // ✅ 更新 SWR 缓存，避免被旧数据覆盖
         }
-    }, [order, confirmAction]);
+    }, [order, confirmAction, mutate]);
 
-    // ✅ 选择配送方式
-    const handleDeliveryChoice = async (method: 'HOME' | 'STATION') => {
+    // ✅ 催单逻辑
+    const handleUrge = useCallback(async () => {
         if (!order) return;
-        const updatedOrder = await setDeliveryMethod(order.id, method);
+        const updatedOrder = await urgeOrder(order.id);
         if (updatedOrder) {
-            // 更新本地状态，关闭弹窗
-            setInitialOrder(updatedOrder);
-            setShowDeliveryChoice(false);
+            updateAction(updatedOrder);
+            mutate(updatedOrder, false); // ✅ 更新 SWR 缓存
         }
-    };
+    }, [order, updateAction, mutate]);
 
     // ✅ 处理 SWR 加载和错误状态
     if (error) return <div className="p-10 text-center text-red-500">加载订单信息失败...</div>;
@@ -101,40 +102,8 @@ export default function TrackingView({ initialOrder }: Props) {
                 </div>
             )}
             
-            {/* 配送方式选择弹窗 */}
-            {showDeliveryChoice && (
-                <div className="absolute inset-0 z-50 flex items-end justify-center bg-black/50 backdrop-blur-sm pb-safe-bottom transition-all duration-300">
-                    <div className="bg-white w-full rounded-t-2xl p-6 animate-slide-up shadow-2xl">
-                        <div className="text-center mb-6">
-                            <h3 className="text-lg font-bold text-gray-900">📦 包裹已到达配送站</h3>
-                            <p className="text-gray-500 text-sm mt-1">请选择您希望的配送方式</p>
-                        </div>
-                        
-                        <div className="grid grid-cols-2 gap-4">
-                            <button 
-                                onClick={() => handleDeliveryChoice('HOME')}
-                                className="flex flex-col items-center justify-center p-4 bg-blue-50 border-2 border-blue-100 rounded-xl active:scale-95 transition-all hover:bg-blue-100"
-                            >
-                                <span className="text-3xl mb-2">🏠</span>
-                                <span className="font-bold text-blue-700">送货上门</span>
-                                <span className="text-xs text-blue-500 mt-1">配送员送货至您的地址</span>
-                            </button>
-                            
-                            <button 
-                                onClick={() => handleDeliveryChoice('STATION')}
-                                className="flex flex-col items-center justify-center p-4 bg-orange-50 border-2 border-orange-100 rounded-xl active:scale-95 transition-all hover:bg-orange-100"
-                            >
-                                <span className="text-3xl mb-2">🏢</span>
-                                <span className="font-bold text-orange-700">站点自提</span>
-                                <span className="text-xs text-orange-500 mt-1">存入最近的营业部/驿站</span>
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            )}
-
             <div className="absolute bottom-0 left-0 w-full z-20">
-                <TrackingTimeline order={order} onConfirm={handleConfirm} />
+                <TrackingTimeline order={order} onConfirm={handleConfirm} onUrge={handleUrge} />
             </div>
         </div>
     );

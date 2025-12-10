@@ -20,6 +20,10 @@ app.use(cors({
 app.use(express.json());
 
 
+import { startOrderGenerator } from './services/orderGenerator';
+
+// ... (existing imports)
+
 //初始化 Socket.io
 const io = new Server(httpServer, {
     cors: {
@@ -33,7 +37,10 @@ io.on('connection', (socket) => {
     socket.on('disconnect', () => {
         console.log("客户端断开了:", socket.id);
     })
-})
+});
+
+// 启动订单模拟生成器
+startOrderGenerator(io);
 
 app.set('socketio', io);
 //注册路由

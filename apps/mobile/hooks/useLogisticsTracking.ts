@@ -32,10 +32,11 @@ export const useLogisticsTracking = ({ map, AMap, orderId, startPoint, initialPa
         if (!map || !AMap) return;
 
         if (!carMarkerRef.current) {
+            // ✅ 修复：每次初始化（或重新初始化）时重置路径，防止残留上一单的路径
+            pathRef.current = (initialPath && initialPath.length > 0) ? initialPath : [startPoint];
+
             // 确定初始位置：如果有历史路径，则车在最后一点；否则在起点
-            const initPos = (initialPath && initialPath.length > 0) 
-                ? initialPath[initialPath.length - 1] 
-                : startPoint;
+            const initPos = pathRef.current[pathRef.current.length - 1];
 
             carMarkerRef.current = new AMap.Marker({
                 map: map,
@@ -48,7 +49,7 @@ export const useLogisticsTracking = ({ map, AMap, orderId, startPoint, initialPa
             });
 
             passedPolylineRef.current = new AMap.Polyline({
-                path: initialPath || [startPoint],
+                path: (initialPath && initialPath.length > 0) ? initialPath : [startPoint],
                 strokeColor: '#D93F32',
                 strokeWeight: 6,
             });
@@ -58,17 +59,9 @@ export const useLogisticsTracking = ({ map, AMap, orderId, startPoint, initialPa
             if (initialPath && initialPath.length > 1) {
                 map.setFitView([passedPolylineRef.current]);
             }
-
-            carMarkerRef.current.on('moving', (e: any) => {
-                const currentPos = e.target.getPosition();
-                if (passedPolylineRef.current) {
-                    passedPolylineRef.current.setPath([...pathRef.current, [currentPos.lng, currentPos.lat]]);
-                }
-            });
-            carMarkerRef.current.on('moveend', () => {
-                const finalPos = carMarkerRef.current?.getPosition();
-                if (finalPos) pathRef.current.push([finalPos.lng, finalPos.lat]);
-            });
+            
+            // ❌ 删除：不要监听 marker 的 moving 事件来画线，因为 marker 移动是动画插值，会导致线非常密集且不真实
+            // ✅ 应该在收到 socket 事件时显式更新路径
 
             map.on('dragstart', () => toggleFollow(false));
         }
@@ -85,6 +78,13 @@ export const useLogisticsTracking = ({ map, AMap, orderId, startPoint, initialPa
                 if (carMarkerRef.current) {
                     const nextPos: [number, number] = [data.lng, data.lat];
                     carMarkerRef.current.moveTo(nextPos, { duration: data.speed ? data.speed * 1.1 : 200, autoRotation: false });
+
+                    // ✅ 核心修复：在这里更新轨迹线
+                    if (passedPolylineRef.current) {
+                         // 将新点加入到历史路径中
+                         pathRef.current.push(nextPos);
+                         passedPolylineRef.current.setPath(pathRef.current);
+                    }
 
                     if (data.resetView) {
                         toggleFollow(true);
@@ -103,6 +103,21 @@ export const useLogisticsTracking = ({ map, AMap, orderId, startPoint, initialPa
             if (socketRef.current) {
                 socketRef.current.disconnect();
                 socketRef.current = null;
+            }
+            // ✅ Cleanup: 卸载组件时清除地图覆盖物，防止切换订单时残留
+            if (map) {
+                try {
+                    if (carMarkerRef.current) {
+                        map.remove(carMarkerRef.current);
+                        carMarkerRef.current = null;
+                    }
+                    if (passedPolylineRef.current) {
+                        map.remove(passedPolylineRef.current);
+                        passedPolylineRef.current = null;
+                    }
+                } catch (e) {
+                    console.warn('Map remove overlay failed (map likely destroyed)', e);
+                }
             }
         };
 

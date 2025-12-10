@@ -21,17 +21,6 @@ function MapContainer({startPoint, endPoint, orderId, order }: Props) {
         zoom: 4
     });
 
-    const dashPolylineRef = useRef<AMap.Polyline | null>(null);
-    useEffect(() => {
-        if (dashPolylineRef.current) {
-            if (order.status === OrderStatus.DELIVERED || order.status === OrderStatus.COMPLETED) {
-                dashPolylineRef.current.hide();
-            } else {
-                dashPolylineRef.current.show();
-            }
-        }
-    }, [order.status]);
-
     useEffect(() => {
         if (!map || !AMap) return;
 
@@ -44,7 +33,7 @@ function MapContainer({startPoint, endPoint, orderId, order }: Props) {
                     ${text}
                 </div>
             `;
-            new AMap.Marker({
+            return new AMap.Marker({
                 position,
                 content: content,
                 offset: new AMap.Pixel(-25, -25),
@@ -52,27 +41,22 @@ function MapContainer({startPoint, endPoint, orderId, order }: Props) {
             });
         };
 
-        createTextMarker(startPoint, `发: ${order.startCity}`, 'start');
-        createTextMarker(endPoint, `收: ${order.endCity}`, 'end');
+        const startMarker = createTextMarker(startPoint, `商家`, 'start');
+        const endMarker = createTextMarker(endPoint, `顾客`, 'end');
 
-        const dashPolyline = new AMap.Polyline({
-            path: [startPoint, endPoint],
-            strokeColor: '#D93F32',
-            strokeOpacity: 0.6,
-            strokeWeight: 4,
-            strokeStyle: 'dashed',
-            strokeDasharray: [10, 10],
-            geodesic: true,
-        });
+        // ✅ 自动缩放地图以适应起点和终点，避免一开始显示全中国
+        map.setFitView([startMarker, endMarker], false, [100, 50, 100, 50]); // 上右下左 padding
 
-        // ✅ 初始化时如果已完成，直接隐藏虚线
-        if (order.status === OrderStatus.DELIVERED || order.status === OrderStatus.COMPLETED) {
-            dashPolyline.hide();
-        }
+        // 移除虚线，只在 initialPath 存在时（历史轨迹）或开始追踪后才会有线
 
-        map.add(dashPolyline);
-        dashPolylineRef.current = dashPolyline;
-        map.setFitView([dashPolyline], false, [50, 50, 300, 50]);
+        return () => {
+            try {
+                if (startMarker) map.remove(startMarker);
+                if (endMarker) map.remove(endMarker);
+            } catch (e) {
+                // ignore
+            }
+        };
 
     }, [map, AMap, startPoint.toString(), endPoint.toString()]); // eslint-disable-line react-hooks/exhaustive-deps
 

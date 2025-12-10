@@ -40,6 +40,11 @@ export const createOrder = async (payload: CreateOrderPayload): Promise<ApiRespo
     return request.post<ApiResponse<Order>, ApiResponse<Order>>('/orders', payload);
 };
 
+// 批量发货 (智能调度)
+export const dispatchBatch = async (orderIds: string[]): Promise<ApiResponse<any>> => {
+    return request.post<ApiResponse<any>, ApiResponse<any>>('/orders/dispatch/batch', { orderIds });
+};
+
 // ✅ 新增：获取可选节点的 API 函数
 export const fetchSelectableNodes = async (): Promise<ApiResponse<SelectableNodes>> => {
     return request.get<ApiResponse<SelectableNodes>, ApiResponse<SelectableNodes>>('/nodes/selectable');

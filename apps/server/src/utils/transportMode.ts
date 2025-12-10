@@ -18,34 +18,16 @@ const getDistance = (n1: LogisticsNode, n2: LogisticsNode) => {
 };
 
 export const getTransportMode = (from: LogisticsNode, to: LogisticsNode): TransportMode => {
-    // 末端派送：网点 -> 地址
-    if (from.type === 'STATION' && to.type === 'ADDRESS') {
-        return 'DELIVERY'; // 三轮车/电动车
-    }
-
-    // 枢纽互转：混合模式
-    if (from.type === 'HUB' && to.type === 'HUB') {
-        const dist = getDistance(from, to);
-        // 如果距离小于 800km，走陆运（卡车）更划算
-        if (dist < 800) {
-            return 'TRUNK';
-        }
-        return 'AIR';
-    }
-
-    // 默认干线运输 (Station -> Center -> Hub)
-    return 'TRUNK';
+    // 同城外卖场景：全部为配送模式
+    return 'DELIVERY';
 };
 // 获取中文描述
 export const getStatusDescription = (mode: TransportMode, fromName: string, toName: string) => {
     switch (mode) {
-        case 'AIR':
-            return `✈️ [空运] 航班飞往【${toName}】`;
         case 'DELIVERY':
-            return `🛵 [派送] 快递员骑行前往【${toName}】，请保持电话畅通`;
-        case 'TRUNK':
+            return `🛵 [配送] 骑手正在前往【${toName}】，请保持电话畅通`;
         default:
-            return `🚛 [陆运] 干线车辆运输中，前往【${toName}】`;
+            return `🛵 [配送] 正在配送中`;
     }
 };
 
@@ -56,18 +38,6 @@ interface SegmentConfig {
 }
 //视觉/精度配置
 export const getSegmentConfig = (mode: TransportMode, distance: number): SegmentConfig => {
-    if (mode === 'DELIVERY') {
-        return { zoom: 17, speed: 200, stepSize: 1 };
-    }
-
-    // 空运：宏观
-    if (mode === 'AIR') {
-        return { zoom: 5, speed: 50, stepSize: 5 };
-    }
-    let dynamicZoom = 8;
-    return {
-        zoom: dynamicZoom,
-        speed: 80,
-        stepSize: distance > 200 ? 5 : 2
-    };
+    // 统一为高精度、慢速（相对飞机）
+    return { zoom: 16, speed: 200, stepSize: 1 };
 };

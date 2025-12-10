@@ -5,7 +5,9 @@ import {
     shipOrder,
     createOrder,
     confirmReceipt,
-    setDeliveryMethod
+    setDeliveryMethod,
+    dispatchBatchOrders,
+    urgeOrder
 } from '../controllers/orderController';
 
 const router = Router();
@@ -16,8 +18,10 @@ router.get('/:id', getOrderById);       // 获取详情
 
 // 2. 操作类
 router.post('/', createOrder);          // 创建订单 (Admin用)
-router.post('/:id/ship', shipOrder);    // 发货 (Admin用)
+router.post('/:id/ship', shipOrder);    // 单个发货
+router.post('/dispatch/batch', dispatchBatchOrders); // 批量发货 (末端)
 router.post('/:id/confirm', confirmReceipt); // 确认收货 (Mobile用)
 router.post('/:id/delivery-method', setDeliveryMethod); // 设置配送方式 (Mobile用)
+router.post('/:id/urge', urgeOrder);    // 催单 (Mobile用)
 
 export default router;

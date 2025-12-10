@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Layout, Menu, theme, Select, Spin } from 'antd';
 import {
     DashboardOutlined,
@@ -6,6 +6,7 @@ import {
     EnvironmentOutlined,
     ShopOutlined
 } from '@ant-design/icons';
+import { BrowserRouter, Routes, Route, useNavigate, useLocation, Navigate } from 'react-router-dom';
 import OrderList from './pages/OrderList';
 import Dashboard from './pages/Dashboard';
 import DeliveryMap from './pages/DeliveryMap';
@@ -16,30 +17,26 @@ const { Header, Content, Sider } = Layout;
 // 创建一个内部组件来使用 Context，因为 App 本身包裹在 Provider 外面
 const MainLayout: React.FC = () => {
     const [collapsed, setCollapsed] = useState(false);
-    const [activeKey, setActiveKey] = useState('dashboard');
     const {
         token: { colorBgContainer, borderRadiusLG },
     } = theme.useToken();
-
+    
+    const navigate = useNavigate();
+    const location = useLocation();
     const { currentMerchant, merchants, setMerchant, isLoading } = useMerchant();
 
-    const renderContent = () => {
-        switch (activeKey) {
-            case 'dashboard':
-                return <Dashboard />;
-            case 'order':
-                return <OrderList />;
-            case 'map':
-                return <DeliveryMap />;
-            default:
-                return <Dashboard />;
-        }
+    // 根据当前 URL 设置选中的 Menu Key
+    const getSelectedKey = () => {
+        const path = location.pathname;
+        if (path.includes('/orders')) return 'order';
+        if (path.includes('/map')) return 'map';
+        return 'dashboard';
     };
 
     if (isLoading) {
         return (
             <div style={{ height: '100vh', display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
-                <Spin size="large" tip="正在加载商家信息..." />
+                <Spin size="large" tip="正在加载站点信息..." />
             </div>
         );
     }
@@ -54,8 +51,14 @@ const MainLayout: React.FC = () => {
                     theme="dark"
                     defaultSelectedKeys={['dashboard']}
                     mode="inline"
-                    selectedKeys={[activeKey]}
-                    onClick={(e) => setActiveKey(e.key)}
+                    selectedKeys={[getSelectedKey()]}
+                    onClick={(e) => {
+                        switch (e.key) {
+                            case 'dashboard': navigate('/'); break;
+                            case 'order': navigate('/orders'); break;
+                            case 'map': navigate('/map'); break;
+                        }
+                    }}
                     items={[
                         {
                             key: 'dashboard',
@@ -77,11 +80,11 @@ const MainLayout: React.FC = () => {
             </Sider>
             <Layout>
                 <Header style={{ padding: '0 24px', background: colorBgContainer, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                    <h2 style={{ margin: 0 }}>物流管理控制台</h2>
+                    <h2 style={{ margin: 0 }}>自营配送站控制台</h2>
                     
                     <div style={{ display: 'flex', alignItems: 'center' }}>
                         <ShopOutlined style={{ fontSize: 18, marginRight: 8 }} />
-                        <span style={{ marginRight: 8 }}>当前商家:</span>
+                        <span style={{ marginRight: 8 }}>当前站点:</span>
                         <Select
                             value={currentMerchant?.id}
                             style={{ width: 200 }}
@@ -102,7 +105,12 @@ const MainLayout: React.FC = () => {
                             borderRadius: borderRadiusLG,
                         }}
                     >
-                        {renderContent()}
+                        <Routes>
+                            <Route path="/" element={<Dashboard />} />
+                            <Route path="/orders" element={<OrderList />} />
+                            <Route path="/map" element={<DeliveryMap />} />
+                            <Route path="*" element={<Navigate to="/" replace />} />
+                        </Routes>
                     </div>
                 </Content>
             </Layout>
@@ -112,9 +120,11 @@ const MainLayout: React.FC = () => {
 
 const App: React.FC = () => {
     return (
-        <MerchantProvider>
-            <MainLayout />
-        </MerchantProvider>
+        <BrowserRouter>
+            <MerchantProvider>
+                <MainLayout />
+            </MerchantProvider>
+        </BrowserRouter>
     );
 };
 

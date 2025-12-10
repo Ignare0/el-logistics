@@ -6,9 +6,11 @@ interface OrderState {
     order: Order | null;
     distance: string | null;
     actions: {
+        reset: () => void;
         setInitialOrder: (order: Order) => void;
         updateFromSocket: (data: PositionUpdatePayload) => void;
         confirmReceipt: (updatedOrder: Order) => void;
+        updateOrder: (updatedOrder: Order) => void; // 通用更新
     };
 }
 
@@ -16,6 +18,7 @@ export const useOrderStore = create<OrderState>((set, get) => ({
     order: null,
     distance: null,
     actions: {
+        reset: () => set({ order: null, distance: null }),
         // Action 1: 初始化 Store
         setInitialOrder: (order) => {
 
@@ -64,6 +67,14 @@ export const useOrderStore = create<OrderState>((set, get) => ({
         // Action 3: 用户确认收货后更新状态
         confirmReceipt: (updatedOrder) => {
             if (updatedOrder && updatedOrder.timeline) {
+                updatedOrder.timeline.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+            }
+            set({ order: updatedOrder });
+        },
+
+        // Action 4: 通用更新
+        updateOrder: (updatedOrder) => {
+             if (updatedOrder && updatedOrder.timeline) {
                 updatedOrder.timeline.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
             }
             set({ order: updatedOrder });

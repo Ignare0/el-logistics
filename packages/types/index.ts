@@ -1,5 +1,5 @@
 // packages/types/index.ts
-export type NodeType = 'HUB' | 'CENTER' | 'STATION' | 'WAREHOUSE' | 'ADDRESS';
+export type NodeType = 'STATION' | 'LOCKER' | 'ADDRESS';
 
 // ✅ 2. 把 LogisticsNode 接口定义移到这里并导出
 export interface LogisticsNode {
@@ -51,6 +51,12 @@ export interface Order {
     merchantId?: string; // 商家ID
     customerId?: string; // 用户ID
     serviceLevel?: 'EXPRESS' | 'STANDARD'; // 服务等级：特快/普快
+    deliveryType?: 'LONG_HAUL' | 'LAST_MILE'; // 配送类型：干线/同城末端
+    category?: 'NORMAL' | 'FRESH' | 'MEDICAL'; // 商品类别：普通/生鲜/医药
+    priorityScore?: number; // 动态优先级分数
+    isUrged?: boolean; // 是否被催单
+    isReturning?: boolean; // 骑手是否在返程中
+    promisedTime?: string; // 承诺送达时间
     
     items?: OrderItem[]; // 新增：订单商品明细
 
@@ -65,7 +71,9 @@ export interface Order {
     eta?: string;
     startCity?: string;
     endCity?: string;
-    deliveryMethod?: 'HOME' | 'STATION';
+    startNodeName?: string; // 新增：起点名称（商家/站点）
+    endNodeName?: string;   // 新增：终点名称（虽然通常是 customer.address，但也可能不同）
+    deliveryMethod?: 'HOME' | 'LOCKER';
     waitingForSelection?: boolean;
 
     // 这里的类型必须和上面定义的一致
@@ -96,7 +104,7 @@ export interface PositionUpdatePayload {
     orderId: string;
     lat: number;
     lng: number;
-    status: 'arrived_node' | 'shipping' | 'delivered' | 'waiting_for_selection';
+    status: 'arrived_node' | 'shipping' | 'delivered' | 'waiting_for_selection' | 'returning' | 'rider_idle';
     statusText: string;
     transport?: 'AIR' | 'TRUNK' | 'DELIVERY';
     zoom?: number;

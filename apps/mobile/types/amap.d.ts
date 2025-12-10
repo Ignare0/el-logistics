@@ -43,6 +43,7 @@ declare namespace AMap {
         ): void;
 
         add(overlay: Overlay | Overlay[]): void;
+        remove(overlay: Overlay | Overlay[]): void; // ✅ 修复：增加 remove 方法定义
         setMapStyle(style: string): void; // 增加样式设置方法
         on(event: string, callback: (e: AMapEvent<Map>) => void): void;
     }

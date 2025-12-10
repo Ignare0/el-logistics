@@ -169,9 +169,10 @@ export const startSimulation = async (io: Server, order: ServerOrder, startIndex
                 return;
             }
 
-            // 如果已经选择了自提，并且当前就是配送站点（倒数第二个节点），则直接结束流程
-            if (isLastHub && order.deliveryMethod === 'STATION') {
-                 console.log(`🛑 用户选择自提，包裹留存【${currentNode.name}】`);
+            // 如果已经选择了自提，并且当前就是自提柜（倒数第二个节点? 不，如果是自提，终点就是自提柜）
+            // 修正逻辑：如果 deliveryMethod 是 LOCKER，且当前节点是 LOCKER 类型，则结束
+            if (currentNode.type === 'LOCKER' && order.deliveryMethod === 'LOCKER') {
+                 console.log(`🛑 用户选择自提，包裹存入【${currentNode.name}】`);
                  const pickupPayload: PositionUpdatePayload = {
                     orderId: id,
                     lat: currentNode.location.lat,
@@ -240,6 +241,73 @@ export const startSimulation = async (io: Server, order: ServerOrder, startIndex
             io.emit('position_update', deliveredPayload);
             updateOrderMemory(order, deliveredPayload); // ✅ 更新状态为 Delivered
 
+            // --- 阶段 E: 骑手返回站点 (仅限末端配送) ---
+            // 如果是末端配送，且有起始站点（通常倒数第二个节点是站点）
+            if (order.deliveryType === 'LAST_MILE' && routeNodes.length >= 2) {
+                const stationNode = routeNodes[routeNodes.length - 2];
+                console.log(`🏠 订单送达，骑手开始返回站点: ${stationNode.name}`);
+                
+                // 获取返回路径
+                const returnRoutePoints = await getRoutePoints('DELIVERY', lastNode, stationNode);
+
+                for (let j = 0; j < returnRoutePoints.length; j += 5) { // 稍微快一点返回
+                    if (!activeTimers.get(id)) break;
+                    
+                    const [lng, lat] = returnRoutePoints[j];
+                    
+                    const returnPayload: PositionUpdatePayload = {
+                        orderId: id,
+                        lat, lng,
+                        transport: 'DELIVERY',
+                        status: 'returning', 
+                        statusText: `已送达，骑手正在返回站点`,
+                        speed: 100,
+                        timestamp: new Date().toISOString()
+                    };
+
+                    io.emit('position_update', returnPayload);
+                    order.logistics.currentLat = lat;
+                    order.logistics.currentLng = lng;
+                    order.isReturning = true;
+
+                    await wait(100);
+                }
+
+                // 确保发送最后一个点
+                if (returnRoutePoints.length > 0) {
+                    const [lng, lat] = returnRoutePoints[returnRoutePoints.length - 1];
+                    const returnPayload: PositionUpdatePayload = {
+                        orderId: id,
+                        lat, lng,
+                        transport: 'DELIVERY',
+                        status: 'returning',
+                        statusText: `已送达，骑手正在返回站点`,
+                        speed: 100,
+                        timestamp: new Date().toISOString()
+                    };
+                    io.emit('position_update', returnPayload);
+                    order.logistics.currentLat = lat;
+                    order.logistics.currentLng = lng;
+                    
+                    // 停留一会儿，让用户看到骑手到达站点
+                    await wait(1000);
+                }
+
+                // 返回结束
+                const idlePayload: PositionUpdatePayload = {
+                    orderId: id,
+                    lat: stationNode.location.lat,
+                    lng: stationNode.location.lng,
+                    status: 'rider_idle',
+                    statusText: `骑手已回站`,
+                    timestamp: new Date().toISOString()
+                };
+                io.emit('position_update', idlePayload);
+                order.isReturning = false;
+
+                console.log(`🏁 骑手已返回站点`);
+            }
+
             console.log(`🏁 订单 ${id} 模拟结束`);
             activeTimers.set(id, false);
         }
@@ -247,5 +315,169 @@ export const startSimulation = async (io: Server, order: ServerOrder, startIndex
     } catch (e) {
         console.error(`❌ 模拟过程出错:`, e);
         activeTimers.set(id, false);
+    }
+};
+
+/**
+ * 批量订单模拟 (同一骑手配送多单)
+ */
+export const startBatchSimulation = async (io: Server, orders: ServerOrder[], stationNode: LogisticsNode) => {
+    // 1. 简单的路径规划：Station -> Order 1 -> Order 2 ...
+    // 这里不做复杂的 TSP，直接按数组顺序送
+    const batchId = `BATCH_${Date.now()}`;
+    console.log(`🚀 开启批量配送模拟，共 ${orders.length} 单`);
+
+    // 标记所有订单为运输中
+    orders.forEach(o => activeTimers.set(o.id, true));
+
+    try {
+        let currentNode = stationNode;
+
+        // 遍历每个订单作为目的地
+        for (const order of orders) {
+            // 构建临时的 Target Node
+            const targetNode: LogisticsNode = {
+                id: `ADDR_${order.id}`,
+                name: order.customer.address,
+                type: 'ADDRESS',
+                location: { lat: order.logistics.endLat, lng: order.logistics.endLng }
+            };
+
+            console.log(`>>> 骑手前往: ${targetNode.name}`);
+
+            // 获取骑行路径
+            const routePoints = await getRoutePoints('DELIVERY', currentNode, targetNode);
+
+            // 移动过程
+            for (let j = 0; j < routePoints.length; j += 2) { // 步长2，稍微快点
+                const [lng, lat] = routePoints[j];
+                const now = new Date().toISOString();
+
+                // **关键点**：骑手的位置要广播给**这批次的所有订单**
+                // 这样用户查任意一个订单，都能看到骑手当前在哪
+                const payload: PositionUpdatePayload = {
+                    orderId: '', // 动态填充
+                    lat, lng,
+                    transport: 'DELIVERY',
+                    status: 'shipping',
+                    statusText: `骑手正在配送中，当前位置：${lng.toFixed(4)},${lat.toFixed(4)}`,
+                    speed: 100,
+                    timestamp: now
+                };
+
+                // 向所有关联订单推送位置更新
+                orders.forEach(o => {
+                    // 如果这个订单已经送达了，就不再推移动位置了（或者也可以推，看需求）
+                    if (o.status !== OrderStatus.DELIVERED && o.status !== OrderStatus.COMPLETED) {
+                        const p = { ...payload, orderId: o.id };
+                        io.emit('position_update', p);
+                        updateOrderMemory(o, p);
+                    }
+                });
+
+                await wait(100); // 模拟移动速度
+            }
+
+            // 到达当前订单目的地
+            const deliveredPayload: PositionUpdatePayload = {
+                orderId: order.id,
+                lat: targetNode.location.lat,
+                lng: targetNode.location.lng,
+                status: 'delivered',
+                statusText: `✅ 您的订单已送达，请签收`
+            };
+            io.emit('position_update', deliveredPayload);
+            updateOrderMemory(order, deliveredPayload);
+            
+            console.log(`✅ 订单 ${order.id} 已送达`);
+            activeTimers.set(order.id, false);
+
+            // 更新当前节点为刚送达的位置，继续送下一单
+            currentNode = targetNode;
+            
+            // 模拟卸货/打电话
+            await wait(1000);
+            }
+
+            // ==========================================
+            // Step 4 (Part 2): Return to Station (Phase 4 Requirement)
+            // ==========================================
+            if (orders.length > 0) {
+                console.log(`🏠 所有订单派送完毕，骑手返回站点: ${stationNode.name}`);
+                
+                const returnRoutePoints = await getRoutePoints('DELIVERY', currentNode, stationNode);
+
+                for (let j = 0; j < returnRoutePoints.length; j += 2) {
+                    const [lng, lat] = returnRoutePoints[j];
+                    const now = new Date().toISOString();
+
+                    const payload: PositionUpdatePayload = {
+                        orderId: '', // Returning, no specific order
+                        lat, lng,
+                        transport: 'DELIVERY',
+                        status: 'returning',
+                        statusText: `所有订单派送完毕，骑手正在返回站点`,
+                        speed: 100,
+                        timestamp: now
+                    };
+
+                    // Broadcast to all orders in this batch so users see the rider returning
+                    orders.forEach(o => {
+                         if (o.status !== OrderStatus.COMPLETED) { // Allow delivered orders to see return trip if needed
+                            const p = { ...payload, orderId: o.id };
+                            io.emit('position_update', p);
+                        }
+                    });
+
+                    await wait(100);
+                }
+
+                // 确保发送最后一个点
+                if (returnRoutePoints.length > 0) {
+                    const [lng, lat] = returnRoutePoints[returnRoutePoints.length - 1];
+                    const now = new Date().toISOString();
+                    const payload: PositionUpdatePayload = {
+                        orderId: '',
+                        lat, lng,
+                        transport: 'DELIVERY',
+                        status: 'returning',
+                        statusText: `所有订单派送完毕，骑手正在返回站点`,
+                        speed: 100,
+                        timestamp: now
+                    };
+                    orders.forEach(o => {
+                        if (o.status !== OrderStatus.COMPLETED) {
+                           const p = { ...payload, orderId: o.id };
+                           io.emit('position_update', p);
+                       }
+                   });
+                   // 停留一会儿，让用户看到骑手到达站点
+                   await wait(1000);
+                }
+                
+                // 返回结束
+                const idlePayload: PositionUpdatePayload = {
+                    orderId: '',
+                    lat: stationNode.location.lat,
+                    lng: stationNode.location.lng,
+                    status: 'rider_idle',
+                    statusText: `骑手已回站`,
+                    timestamp: new Date().toISOString()
+                };
+                
+                orders.forEach(o => {
+                    if (o.status !== OrderStatus.COMPLETED) {
+                         const p = { ...idlePayload, orderId: o.id };
+                         io.emit('position_update', p);
+                    }
+                });
+
+                console.log(`🏁 骑手已安全返回站点`);
+            }
+
+            console.log(`🏁 批量配送任务结束`);
+
+        } catch (e) {
+        console.error('❌ 批量模拟出错:', e);
     }
 };

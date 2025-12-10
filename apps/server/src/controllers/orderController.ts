@@ -2,20 +2,109 @@ import { Request, Response } from 'express';
 import { error, success } from '../utils/response';
 import { OrderStatus, TimelineEvent } from '@el/types';
 import { ServerOrder } from '../types/internal';
-import { startSimulation } from "../utils/simulator";
+import { startSimulation, startBatchSimulation } from "../utils/simulator";
 import { planLogisticsRoute } from '../services/logisticsService';
+import { optimizeBatchRoute } from '../utils/routeOptimizer';
 import { NODES } from '../mock/nodes';
 import { orders } from '../mock/orders';
+import { LogisticsNode } from '../domain/Node';
+
+// ... (existing code)
+
+// --- 5. [新增] 批量发货 (末端配送) ---
+export const dispatchBatchOrders = (req: Request, res: Response) => {
+    const { orderIds } = req.body;
+    
+    if (!Array.isArray(orderIds) || orderIds.length === 0) {
+        return res.status(400).json(error('请选择要发货的订单'));
+    }
+
+    const io = req.app.get('socketio');
+    const selectedOrders: ServerOrder[] = [];
+    const notFoundIds: string[] = [];
+
+    // 1. 查找并验证订单
+    orderIds.forEach(id => {
+        const order = orders.find(o => o.id === id);
+        if (order) {
+            // 只有 Pending 状态的才处理
+            if (order.status === OrderStatus.PENDING) {
+                // 简单的类型安全检查：确保 logistics 存在且有坐标
+                if (order.logistics && typeof order.logistics.endLat === 'number' && typeof order.logistics.endLng === 'number') {
+                    selectedOrders.push(order);
+                } else {
+                    console.warn(`⚠️ 订单 ${id} 数据不完整，跳过调度`);
+                    notFoundIds.push(id);
+                }
+            }
+        } else {
+            notFoundIds.push(id);
+        }
+    });
+
+    if (selectedOrders.length === 0) {
+        return res.status(400).json(error('没有可调度的有效订单'));
+    }
+
+    // 2. 批量更新状态
+    const now = new Date().toISOString();
+    selectedOrders.forEach(order => {
+        order.status = OrderStatus.SHIPPING;
+        order.timeline.push({
+            status: 'shipping',
+            description: '调度中心已指派骑手，正在配送中',
+            timestamp: now,
+            location: '三里屯配送站'
+        });
+        
+        // 推送状态变更给前端
+        io.emit('order_update', order);
+    });
+
+    // 3. 启动批量模拟
+    // 假设起点都是三里屯配送站 (Station Node)
+    // 实际上应该从 DB 或 Config 获取，这里 Mock 一个
+    const stationNode: LogisticsNode = {
+        id: 'STATION_SLT',
+        name: '三里屯配送站',
+        type: 'STATION',
+        location: { lat: 39.9373, lng: 116.4551 }
+    };
+
+    // 3.1 智能路径规划 (TSP) - 计算最优配送顺序
+    console.log('🔄 正在计算最优配送路径 (TSP)...');
+    const sortedOrders = optimizeBatchRoute(stationNode, selectedOrders);
+    
+    // 打印规划结果
+    console.log('✅ 路径规划完成，配送顺序:');
+    sortedOrders.forEach((o, index) => {
+        console.log(`   ${index + 1}. ${o.customer.address} (订单号: ${o.id})`);
+    });
+
+    // 异步启动模拟，不阻塞 Response
+    // 注意：这里传入 sortedOrders，确保骑手按照最优路径配送
+    startBatchSimulation(io, sortedOrders, stationNode);
+
+    res.json(success({ 
+        dispatchedCount: selectedOrders.length,
+        notFoundIds,
+        routeSequence: sortedOrders.map(o => o.id) // 返回排序后的ID列表
+    }, `成功调度 ${selectedOrders.length} 个订单，路径已优化`));
+};
+
 const sortOrderTimeline = (order: ServerOrder) => {
     order.timeline.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
     return order;
 };
+
 const enrichOrderWithCities = (order: ServerOrder) => {
     if (order.logistics.startNodeId) {
         order.startCity = NODES[order.logistics.startNodeId]?.city;
+        order.startNodeName = NODES[order.logistics.startNodeId]?.name;
     }
     if (order.logistics.endNodeId) {
         order.endCity = NODES[order.logistics.endNodeId]?.city;
+        order.endNodeName = NODES[order.logistics.endNodeId]?.name;
     }
     return order;
 };
@@ -34,7 +123,7 @@ export const getOrders = (req: Request, res: Response) => {
         filteredOrders = filteredOrders.filter(o => o.customerId === customerId);
     }
 
-    const enrichedOrders = filteredOrders.map(enrichOrderWithCities);
+    const enrichedOrders = filteredOrders.map(enrichOrderWithCities).map(sortOrderTimeline);
     res.json(success(enrichedOrders));
 };
 
@@ -44,7 +133,7 @@ export const getOrderById = (req: Request, res: Response) => {
     const order = orders.find(o => o.id === id);
     if (order) {
         const sortedOrder = sortOrderTimeline(JSON.parse(JSON.stringify(order)));
-        res.json(success(enrichOrderWithCities(order)));
+        res.json(success(enrichOrderWithCities(sortedOrder)));
     } else {
         res.status(404).json(error('订单不存在', 404));
     }
@@ -122,6 +211,12 @@ export const shipOrder = (req: Request, res: Response) => {
             console.error(e);
             return res.status(500).json(error('路径规划失败'));
         }
+    } else if (order.logistics.startLat && order.logistics.endLat) {
+        // Fallback for Last Mile / Ad-hoc orders
+        order.logistics.plannedRoute = [
+            { id: 'START', location: { lat: order.logistics.startLat, lng: order.logistics.startLng }, name: '起点', type: 'STATION' },
+            { id: 'END', location: { lat: order.logistics.endLat, lng: order.logistics.endLng }, name: order.customer.address, type: 'ADDRESS' }
+        ];
     }
 
     // 2. 更新状态
@@ -172,12 +267,12 @@ export const confirmReceipt = (req: Request, res: Response) => {
 // --- 6. [新增] 设置配送方式 ---
 export const setDeliveryMethod = (req: Request, res: Response) => {
     const { id } = req.params;
-    const { method } = req.body; // 'HOME' | 'STATION'
+    const { method } = req.body; // 'HOME' | 'LOCKER'
 
     const order = orders.find(o => o.id === id);
     if (!order) return res.status(404).json(error('订单不存在'));
 
-    if (!['HOME', 'STATION'].includes(method)) {
+    if (!['HOME', 'LOCKER'].includes(method)) {
         return res.status(400).json(error('无效的配送方式'));
     }
 
@@ -188,44 +283,57 @@ export const setDeliveryMethod = (req: Request, res: Response) => {
     // 记录事件
     order.timeline.push({
         status: 'shipping', // 保持 shipping 状态或自定义
-        description: method === 'HOME' ? '用户选择【送货上门】，准备派送' : '用户选择【自提】，包裹将存入站点',
+        description: method === 'HOME' ? '用户选择【送货上门】，准备派送' : '用户选择【自提】，包裹将存入自提柜',
         timestamp: new Date().toISOString()
     });
 
     // 重新唤醒模拟器
     const io = req.app.get('socketio');
     
-    if (method === 'STATION') {
-        // 1. 设置状态为 DELIVERED (待取件)
-        order.status = OrderStatus.DELIVERED;
+    if (method === 'LOCKER') {
+        // 1. 寻找最近的自提柜
+        const lockers = Object.values(NODES).filter(n => n.type === 'LOCKER');
+        let nearestLocker = lockers[0];
+        let minDist = Infinity;
         
-        // 2. 补充 Timeline (明确告知已存入)
-        order.timeline.push({
-            status: 'delivered',
-            description: '包裹已存入站点，请凭取件码取件',
-            timestamp: new Date().toISOString()
+        const targetLat = order.logistics.endLat;
+        const targetLng = order.logistics.endLng;
+        
+        lockers.forEach(locker => {
+            const d = (locker.location.lat - targetLat) ** 2 + (locker.location.lng - targetLng) ** 2;
+            if (d < minDist) {
+                minDist = d;
+                nearestLocker = locker;
+            }
         });
 
-        if (io) {
-            // 通知前端状态变化
-            io.emit('order_updated', {
-                orderId: id,
-                deliveryMethod: method,
-                status: OrderStatus.DELIVERED
-            });
-
-            // 强制发送一次位置更新，确保地图显示在站点
-            const route = order.logistics.plannedRoute!;
-            const station = route[route.length - 2];
-            io.emit('position_update', {
-                orderId: id,
-                lat: station.location.lat,
-                lng: station.location.lng,
+        if (nearestLocker && order.logistics.plannedRoute && order.logistics.plannedRoute.length > 0) {
+            // 2. 更新路径：起点 -> 自提柜
+            const startNode = order.logistics.plannedRoute[0];
+            order.logistics.plannedRoute = [startNode, nearestLocker];
+            
+            // 3. 继续模拟 (从起点出发前往自提柜)
+            if (io) {
+                io.emit('order_updated', {
+                    orderId: id,
+                    deliveryMethod: method
+                });
+                
+                // 从当前位置 (index 0) 继续
+                startSimulation(io, order, 0);
+            }
+        } else {
+             // Fallback: 如果找不到柜子，直接完成
+             order.status = OrderStatus.DELIVERED;
+             order.timeline.push({
                 status: 'delivered',
-                statusText: '✅ 包裹已存入站点，请凭取件码取件'
+                description: '包裹已存入站点，请凭取件码取件',
+                timestamp: new Date().toISOString()
             });
+             if (io) {
+                io.emit('order_updated', { orderId: id, status: OrderStatus.DELIVERED });
+             }
         }
-        // ❌ 关键修复：自提模式下，不要调用 startSimulation
         
     } else {
         // method === 'HOME'
@@ -244,4 +352,40 @@ export const setDeliveryMethod = (req: Request, res: Response) => {
     }
 
     res.json(success(order, '配送方式设置成功'));
+};
+
+// --- 7. [新增] 客户催单 ---
+export const urgeOrder = (req: Request, res: Response) => {
+    const { id } = req.params;
+    const order = orders.find(o => o.id === id);
+
+    if (!order) return res.status(404).json(error('订单不存在'));
+
+    if (order.status === OrderStatus.COMPLETED || order.status === OrderStatus.EXCEPTION) {
+        return res.status(400).json(error('当前状态无法催单'));
+    }
+
+    if (order.isUrged) {
+        return res.status(400).json(error('您已经催过单了，请耐心等待'));
+    }
+
+    // Update state
+    order.isUrged = true;
+    order.priorityScore = (order.priorityScore || 0) + 20; // Boost score
+    
+    // Add timeline
+    order.timeline.push({
+        status: 'urged',
+        description: '客户发起催单，正在加急处理',
+        timestamp: new Date().toISOString()
+    });
+
+    // Notify via Socket
+    const io = req.app.get('socketio');
+    if (io) {
+        // Emit full order object so frontend can replace it
+        io.emit('order_update', order); 
+    }
+
+    res.json(success(order, '催单成功，已优先处理'));
 };

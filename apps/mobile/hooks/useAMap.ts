@@ -11,6 +11,9 @@ export const useAMap = (containerId: string, config: { center: [number, number];
     const [AMapNamespace, setAMapNamespace] = useState<AMap.AMapNamespace | null>(null);
 
     useEffect(() => {
+        let isMounted = true;
+        let mapInstance: AMap.Map | null = null;
+
         // ✅ 修复：Window 类型已扩展，直接赋值不再报错
         window._AMapSecurityConfig = {
             securityJsCode: process.env.NEXT_PUBLIC_AMAP_SECURITY_CODE,
@@ -22,10 +25,12 @@ export const useAMap = (containerId: string, config: { center: [number, number];
             plugins: ['AMap.Polyline', 'AMap.MoveAnimation'],
         })
             .then((loadedAMap) => {
+                if (!isMounted) return;
+
                 // loadedAMap 就是 AMap 命名空间对象
                 setAMapNamespace(loadedAMap as AMap.AMapNamespace);
 
-                const mapInstance = new loadedAMap.Map(containerId, {
+                mapInstance = new loadedAMap.Map(containerId, {
                     viewMode: '2D',
                     zoom: config.zoom,
                     center: config.center,
@@ -35,7 +40,10 @@ export const useAMap = (containerId: string, config: { center: [number, number];
             .catch((e) => console.error('地图加载失败', e));
 
         return () => {
-            if (map) map.destroy();
+            isMounted = false;
+            if (mapInstance) {
+                mapInstance.destroy();
+            }
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);

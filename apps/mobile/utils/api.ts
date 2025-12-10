@@ -67,3 +67,18 @@ export const setDeliveryMethod = async (id: string, method: 'HOME' | 'STATION'):
         return null;
     }
 };
+
+export const urgeOrder = async (id: string): Promise<Order | null> => {
+    try {
+        const res = await fetch(`${API_URL}/orders/${id}/urge`, {
+            method: 'POST',
+            cache: 'no-store'
+        });
+        if (!res.ok) return null;
+        const json = (await res.json()) as ApiResponse<Order>;
+        return json.code === 200 ? json.data : null;
+    } catch (e) {
+        console.error('催单失败', e);
+        return null;
+    }
+};

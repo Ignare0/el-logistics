@@ -1,9 +1,12 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { Order, OrderStatus, OrderStatusMap } from '@el/types';
 import Link from 'next/link';
+import useSWR from 'swr';
+import { fetcher } from '@/utils/api';
+import { io } from 'socket.io-client';
 
 interface Props {
     initialOrders: Order[];
@@ -11,37 +14,37 @@ interface Props {
 
 // 运单卡片组件
 const OrderCard = ({ order }: { order: Order }) => (
-    <Link href={`/tracking/${order.id}`} className="block bg-white rounded-2xl shadow-md p-5 active:opacity-80 transition-opacity">
+        <Link href={`/tracking/${order.id}`} className="block bg-white rounded-2xl shadow-md p-5 active:opacity-80 transition-opacity">
         <div className="flex justify-between items-center mb-4">
-            <span className="text-xs font-mono text-gray-500">顺丰标快 {order.id}</span>
+            <span className="text-xs font-mono text-gray-500">外卖订单 {order.id}</span>
 
         </div>
         <div className="flex justify-between items-center">
             <div className="text-center">
-                <p className="text-sm text-gray-500">{order.startCity}</p>
-                <h2 className="text-2xl font-bold text-gray-800">{order.customer.name.substring(0, 1)}师傅</h2>
+                <p className="text-sm text-gray-500">商家</p>
+                <h2 className="text-2xl font-bold text-gray-800">三里屯站</h2>
             </div>
 
             <div className="text-center">
                 <h3 className={`text-xl font-bold ${order.status === OrderStatus.COMPLETED ? 'text-green-600' : 'text-gray-800'}`}>
-                    {OrderStatusMap[order.status]?.text || order.status}
+                    {order.status === OrderStatus.SHIPPING ? '派送中' : (OrderStatusMap[order.status]?.text || order.status)}
                 </h3>
-                <div className="w-20 h-0.5 bg-red-500 mt-1"></div>
+                <div className="w-20 h-0.5 bg-yellow-500 mt-1"></div>
             </div>
 
             <div className="text-center">
-                <p className="text-sm text-gray-500">{order.endCity}</p>
+                <p className="text-sm text-gray-500">顾客</p>
                 <h2 className="text-2xl font-bold text-gray-800">
-                    {order.customer.address.length > 5 ? order.customer.address.substring(0, 5) + '...' : order.customer.address}
+                    {order.customer.name}
                 </h2>
             </div>
         </div>
         <div className="mt-4 pt-4 border-t border-gray-100">
             <p className="text-xs text-gray-500">
-                {order.status === OrderStatus.COMPLETED ? '已签收' : '最新状态'}: {order.timeline[order.timeline.length-1]?.description || '暂无信息'}
+                {order.status === OrderStatus.COMPLETED ? '已送达' : '最新状态'}: {order.timeline?.[0]?.description || order.timeline?.[order.timeline.length-1]?.description || '暂无信息'}
             </p>
             <p className="text-xs text-gray-400 mt-1">
-                签收时间: {new Date(order.createdAt).toLocaleString()}
+                下单时间: {new Date(order.createdAt).toLocaleString()}
             </p>
         </div>
     </Link>
@@ -51,6 +54,42 @@ const OrderCard = ({ order }: { order: Order }) => (
 export default function HomeView({ initialOrders }: Props) {
     const [orderId, setOrderId] = useState('');
     const router = useRouter();
+
+    // ✅ 使用 SWR 自动更新首页订单列表，确保从详情页返回时数据是最新的
+    const { data: orders, mutate } = useSWR<Order[]>(
+        `${process.env.NEXT_PUBLIC_API_URL}/orders`, 
+        () => fetcher<Order[]>(`${process.env.NEXT_PUBLIC_API_URL}/orders`), 
+        {
+            fallbackData: initialOrders,
+            refreshInterval: 3000, // 加快轮询速度
+            revalidateOnFocus: true // 页面重新获得焦点时立即刷新
+        }
+    );
+
+    // 监听 Socket 事件，实现真正的实时更新
+    useEffect(() => {
+        const apiUrl = process.env.NEXT_PUBLIC_API_URL?.replace('/api', '') || 'http://localhost:4000';
+        const socket = io(apiUrl);
+        
+        const handleUpdate = () => {
+            console.log('🔔 收到订单更新通知，刷新列表...');
+            mutate();
+        };
+
+        socket.on('connect', () => console.log('✅ HomeView Socket Connected'));
+        socket.on('order_update', handleUpdate);
+        socket.on('order_updated', handleUpdate);
+
+        return () => {
+            socket.disconnect();
+        };
+    }, [mutate]);
+
+    const displayOrders = orders || initialOrders || [];
+    // 简单的按时间倒序排序，确保最新的在上面
+    const sortedOrders = [...displayOrders].sort((a, b) => 
+        new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+    );
 
     const handleSearch = (e: React.FormEvent) => {
         e.preventDefault();
@@ -77,16 +116,14 @@ export default function HomeView({ initialOrders }: Props) {
 
 
             <main>
-                <h2 className="text-xl font-bold text-gray-800 mb-3">近期快递</h2>
-                {initialOrders.length > 0 ? (
+                <h2 className="text-xl font-bold text-gray-800 mb-3">最近外卖</h2>
+                {sortedOrders.length > 0 ? (
                     <div className="space-y-4">
-                        {/* 我们只显示最近的一个订单，以匹配UI */}
-                        <OrderCard order={initialOrders[0]} />
+                        {/* 显示最近的一个订单 */}
+                        <OrderCard order={sortedOrders[0]} />
                     </div>
                 ) : (
-                    <div className="text-center py-10 bg-white rounded-2xl shadow-md">
-                        <p className="text-gray-500">暂无快递信息</p>
-                    </div>
+                    <div className="text-center py-10 text-gray-400">暂无订单</div>
                 )}
             </main>
         </div>

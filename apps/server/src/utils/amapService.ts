@@ -41,9 +41,57 @@ export const fetchRidingRoute = async (
         }
     }
 
-    // 降级：如果骑行失败，回退到直线
-    console.log('🛵 骑行路径获取失败，已自动降级为直线路径。');
-    return [[startLng, startLat], [endLng, endLat]];
+    // 降级：如果骑行失败，使用模拟的城市道路路径 (直角拐弯)
+    console.log('🛵 骑行路径获取失败，降级为模拟城市路径。');
+    return generateManhattanRoute(startLat, startLng, endLat, endLng);
+};
+
+// 辅助函数：生成曼哈顿路径 (模拟城市街道的直角拐弯)
+const generateManhattanRoute = (lat1: number, lng1: number, lat2: number, lng2: number): [number, number][] => {
+    const points: [number, number][] = [];
+    points.push([lng1, lat1]); // 起点
+
+    // 简单的 L 型路径：先走经度，再走纬度 (或者随机决定先走哪个)
+    // 为了更逼真，我们随机选一个中间拐点
+    // 方案：起点 -> (lng2, lat1) -> 终点
+    // 或者：起点 -> (lng1, lat2) -> 终点
+    
+    // 随机决定先横着走还是先竖着走
+    if (Math.random() > 0.5) {
+        points.push([lng2, lat1]); // 拐点1: 同纬度，目标经度
+    } else {
+        points.push([lng1, lat2]); // 拐点2: 同经度，目标纬度
+    }
+
+    points.push([lng2, lat2]); // 终点
+    
+    // 插值：为了让小车移动平滑，我们需要在长直线上多插几个点
+    return interpolatePoints(points);
+};
+
+// 简单的线性插值，让路径点更密集
+const interpolatePoints = (keyPoints: [number, number][]): [number, number][] => {
+    const result: [number, number][] = [];
+    for (let i = 0; i < keyPoints.length - 1; i++) {
+        const p1 = keyPoints[i];
+        const p2 = keyPoints[i + 1];
+        result.push(p1);
+
+        // 计算距离
+        const dist = Math.sqrt(Math.pow(p1[0] - p2[0], 2) + Math.pow(p1[1] - p2[1], 2));
+        // 如果距离太长，插值 (每 0.001 经纬度插一个点，约100米)
+        const steps = Math.ceil(dist / 0.001);
+        
+        if (steps > 1) {
+            const dLng = (p2[0] - p1[0]) / steps;
+            const dLat = (p2[1] - p1[1]) / steps;
+            for (let j = 1; j < steps; j++) {
+                result.push([p1[0] + dLng * j, p1[1] + dLat * j]);
+            }
+        }
+    }
+    result.push(keyPoints[keyPoints.length - 1]);
+    return result;
 };
 
 export const fetchDrivingRoute = async (
@@ -105,6 +153,8 @@ export const fetchDrivingRoute = async (
 
     } catch (error) {
         console.error('获取路线失败:', error);
-        return [];
+        // 降级：如果驾车规划失败，也使用模拟的城市道路路径
+        console.log('🚗 驾车路径获取失败，降级为模拟城市路径。');
+        return generateManhattanRoute(startLat, startLng, endLat, endLng);
     }
 };
