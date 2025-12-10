@@ -1,13 +1,14 @@
 'use client';
 
-import React, { useEffect, useCallback } from 'react';
+import React, { useEffect, useCallback, useState } from 'react';
 import { Order, OrderStatus } from '@el/types';
 import dynamic from 'next/dynamic';
 import useSWR from 'swr';
-import { confirmOrderReceipt, fetcher, urgeOrder } from '@/utils/api';
+import { confirmOrderReceipt, fetcher, urgeOrder, cancelOrder, getOrderById } from '@/utils/api';
 import { TrackingHeader } from './TrackingHeader';
 import { TrackingTimeline } from './TrackingTimeline';
 import { useOrderStore, useOrderActions } from '@/stores/orderStore'; // ✅ 引入 Zustand store
+import { useRouter } from 'next/navigation';
 
 const MapContainer = dynamic(
     () => import('./MapContainer'),
@@ -18,18 +19,31 @@ const MapContainer = dynamic(
 );
 
 interface Props {
-    initialOrder: Order; // 服务器首次渲染时的数据
+    initialOrder?: Order | null;
+    id?: string;
 }
 
-export default function TrackingView({ initialOrder }: Props) {
-    const { id } = initialOrder;
+export default function TrackingView({ initialOrder, id }: Props) {
+    const router = useRouter();
+    const [phone, setPhone] = useState<string>('');
+
+    useEffect(() => {
+        const saved = typeof window !== 'undefined' ? window.localStorage.getItem('customer_phone') : '';
+        if (saved) setPhone(saved);
+    }, []);
+
+    const orderId = initialOrder?.id || id!;
 
     // ✅ 使用 SWR 获取最新的数据，并进行自动刷新
     // fallbackData 保证了即使客户端请求失败，页面也能展示服务端传来的初始数据
-    const { data: swrOrder, error, mutate } = useSWR(`/orders/${id}`, () => fetcher<Order>(`${process.env.NEXT_PUBLIC_API_URL}/orders/${id}`), {
-        fallbackData: initialOrder,
-        refreshInterval: 30000 // 每 30 秒自动刷新一次数据
-    });
+    const { data: swrOrder, error, mutate } = useSWR(
+        phone && orderId ? `/orders/${orderId}?phone=${encodeURIComponent(phone)}` : null,
+        () => getOrderById(orderId, phone),
+        {
+            fallbackData: initialOrder || undefined,
+            refreshInterval: 30000
+        }
+    );
 
     // ✅ 从 Zustand store 获取实时更新的数据和距离
     const order = useOrderStore((state) => state.order);
@@ -70,12 +84,34 @@ export default function TrackingView({ initialOrder }: Props) {
         const updatedOrder = await urgeOrder(order.id);
         if (updatedOrder) {
             updateAction(updatedOrder);
-            mutate(updatedOrder, false); // ✅ 更新 SWR 缓存
+            mutate(updatedOrder, false);
+        }
+    }, [order, updateAction, mutate]);
+
+    const handleCancel = useCallback(async () => {
+        if (!order) return;
+        const ok = typeof window !== 'undefined' ? window.confirm('确定取消该订单吗？') : true;
+        if (!ok) return;
+        const updatedOrder = await cancelOrder(order.id);
+        if (updatedOrder) {
+            updateAction(updatedOrder);
+            mutate(updatedOrder, false);
         }
     }, [order, updateAction, mutate]);
 
     // ✅ 处理 SWR 加载和错误状态
-    if (error) return <div className="p-10 text-center text-red-500">加载订单信息失败...</div>;
+    useEffect(() => {
+        if (!phone) {
+            const timer = setTimeout(() => router.push('/'), 3000);
+            return () => clearTimeout(timer);
+        }
+    }, [phone, router]);
+
+    if (!phone) return <div className="p-10 text-center">订单不存在（未设置手机号），3 秒后返回首页</div>;
+    if (error || (!swrOrder && !initialOrder)) {
+        setTimeout(() => router.push('/'), 3000);
+        return <div className="p-10 text-center">订单不存在，3 秒后返回首页</div>;
+    }
     // 如果 store 中还没有数据（初始化期间），可以显示一个加载状态
     if (!order) return <div className="p-10 text-center text-gray-500">正在准备物流信息...</div>;
 
@@ -103,7 +139,7 @@ export default function TrackingView({ initialOrder }: Props) {
             )}
             
             <div className="absolute bottom-0 left-0 w-full z-20">
-                <TrackingTimeline order={order} onConfirm={handleConfirm} onUrge={handleUrge} />
+                <TrackingTimeline order={order} onConfirm={handleConfirm} onUrge={handleUrge} onCancel={handleCancel} />
             </div>
         </div>
     );

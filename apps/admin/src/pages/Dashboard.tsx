@@ -147,9 +147,9 @@ const Dashboard: React.FC = () => {
             axisTick: { show: false },
             splitLine: { show: false },
             axisLabel: { show: false },
-            title: { offsetCenter: [0, '30%'] },
+            title: { show: false },
             detail: { fontSize: 20, offsetCenter: [0, '0%'], valueAnimation: true, formatter: '{value}%' },
-            data: [{ value: capacityLoad, name: '负荷' }]
+            data: [{ value: capacityLoad }]
         }]
     };
 
@@ -276,15 +276,6 @@ const Dashboard: React.FC = () => {
                             />
                             {abnormalOrders.length === 0 && <div className="text-center text-gray-400 py-4">暂无异常</div>}
                         </div>
-                    </Card>
-                </Col>
-            </Row>
-
-            {/* Bottom Row: Trends */}
-            <Row gutter={16}>
-                <Col span={24}>
-                    <Card title="📈 全天单量与时效趋势" bordered={false}>
-                        <ReactECharts option={trendOption} style={{ height: '300px' }} />
                     </Card>
                 </Col>
             </Row>

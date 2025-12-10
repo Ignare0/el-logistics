@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { Order, OrderStatus, OrderStatusMap } from '@el/types';
 import Link from 'next/link';
 import useSWR from 'swr';
-import { fetcher } from '@/utils/api';
+import { getOrders as fetchOrdersApi } from '@/utils/api';
 import { io } from 'socket.io-client';
 
 interface Props {
@@ -40,9 +40,6 @@ const OrderCard = ({ order }: { order: Order }) => (
             </div>
         </div>
         <div className="mt-4 pt-4 border-t border-gray-100">
-            <p className="text-xs text-gray-500">
-                {order.status === OrderStatus.COMPLETED ? '已送达' : '最新状态'}: {order.timeline?.[0]?.description || order.timeline?.[order.timeline.length-1]?.description || '暂无信息'}
-            </p>
             <p className="text-xs text-gray-400 mt-1">
                 下单时间: {new Date(order.createdAt).toLocaleString()}
             </p>
@@ -53,16 +50,21 @@ const OrderCard = ({ order }: { order: Order }) => (
 
 export default function HomeView({ initialOrders }: Props) {
     const [orderId, setOrderId] = useState('');
+    const [phone, setPhone] = useState<string>('');
     const router = useRouter();
 
-    // ✅ 使用 SWR 自动更新首页订单列表，确保从详情页返回时数据是最新的
+    useEffect(() => {
+        const saved = typeof window !== 'undefined' ? window.localStorage.getItem('customer_phone') : '';
+        if (saved) setPhone(saved);
+    }, []);
+
     const { data: orders, mutate } = useSWR<Order[]>(
-        `${process.env.NEXT_PUBLIC_API_URL}/orders`, 
-        () => fetcher<Order[]>(`${process.env.NEXT_PUBLIC_API_URL}/orders`), 
+        phone ? `${process.env.NEXT_PUBLIC_API_URL}/orders?phone=${encodeURIComponent(phone)}` : null,
+        () => fetchOrdersApi(phone),
         {
-            fallbackData: initialOrders,
-            refreshInterval: 3000, // 加快轮询速度
-            revalidateOnFocus: true // 页面重新获得焦点时立即刷新
+            fallbackData: [],
+            refreshInterval: 3000,
+            revalidateOnFocus: true
         }
     );
 
@@ -101,6 +103,20 @@ export default function HomeView({ initialOrders }: Props) {
     return (
         <div className="w-full min-h-screen bg-gray-50 font-sans p-4">
 
+            <div className="flex gap-2 mb-4">
+                <input
+                    type="tel"
+                    value={phone}
+                    onChange={(e) => {
+                        const v = e.target.value.trim();
+                        setPhone(v);
+                        if (typeof window !== 'undefined') window.localStorage.setItem('customer_phone', v);
+                    }}
+                    placeholder="输入手机号以查看您的订单"
+                    className="flex-1 h-10 px-3 bg-white rounded-full shadow-sm focus:outline-none focus:ring-2 focus:ring-red-400 transition"
+                />
+            </div>
+
             <form onSubmit={handleSearch} className="relative mb-6">
                 <input
                     type="text"
@@ -117,13 +133,13 @@ export default function HomeView({ initialOrders }: Props) {
 
             <main>
                 <h2 className="text-xl font-bold text-gray-800 mb-3">最近外卖</h2>
-                {sortedOrders.length > 0 ? (
+                {phone && sortedOrders.length > 0 ? (
                     <div className="space-y-4">
                         {/* 显示最近的一个订单 */}
                         <OrderCard order={sortedOrders[0]} />
                     </div>
                 ) : (
-                    <div className="text-center py-10 text-gray-400">暂无订单</div>
+                    <div className="text-center py-10 text-gray-400">{phone ? '暂无订单' : '请输入手机号以查看您的订单'}</div>
                 )}
             </main>
         </div>

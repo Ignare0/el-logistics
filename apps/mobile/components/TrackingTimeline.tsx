@@ -9,6 +9,7 @@ interface Props {
     order: Order;
     onConfirm: () => Promise<void>;
     onUrge: () => Promise<void>;
+    onCancel: () => Promise<void>;
 }
 
 const ActionButton = ({ icon, text, onClick, disabled }: { icon: React.ReactNode; text: string; onClick?: () => void; disabled?: boolean }) => (
@@ -23,7 +24,7 @@ const ActionButton = ({ icon, text, onClick, disabled }: { icon: React.ReactNode
     </div>
 );
 
-export const TrackingTimeline: React.FC<Props> = ({ order, onConfirm, onUrge }) => {
+export const TrackingTimeline: React.FC<Props> = ({ order, onConfirm, onUrge, onCancel }) => {
     // 状态：控制抽屉展开还是收起 (默认收起，为了让用户先看地图)
     const [isExpanded, setIsExpanded] = useState(false);
 
@@ -87,12 +88,28 @@ export const TrackingTimeline: React.FC<Props> = ({ order, onConfirm, onUrge }) 
                 </div>
             </div>
             {order.status === OrderStatus.DELIVERED && (
-                <div className="px-4 py-3 bg-white border-t border-gray-100">
+                <div className="px-5 pt-3">
                     <button
                         onClick={onConfirm}
                         className="w-full bg-red-500 text-white font-bold py-3 rounded-xl text-lg active:scale-95 transition-transform"
                     >
                         确认签收
+                    </button>
+                </div>
+            )}
+            {order.status !== OrderStatus.DELIVERED && order.status !== OrderStatus.COMPLETED && order.status !== OrderStatus.CANCELLED && (
+                <div className="px-5 pt-3 flex gap-3">
+                    <button
+                        onClick={onUrge}
+                        className="flex-1 bg-yellow-500 text-white font-bold py-3 rounded-xl text-lg active:scale-95 transition-transform"
+                    >
+                        催单
+                    </button>
+                    <button
+                        onClick={onCancel}
+                        className="flex-1 bg-gray-800 text-white font-bold py-3 rounded-xl text-lg active:scale-95 transition-transform"
+                    >
+                        取消订单
                     </button>
                 </div>
             )}

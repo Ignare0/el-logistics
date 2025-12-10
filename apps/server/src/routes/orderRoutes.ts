@@ -7,7 +7,8 @@ import {
     confirmReceipt,
     setDeliveryMethod,
     dispatchBatchOrders,
-    urgeOrder
+    urgeOrder,
+    cancelOrder
 } from '../controllers/orderController';
 
 const router = Router();
@@ -23,5 +24,6 @@ router.post('/dispatch/batch', dispatchBatchOrders); // 批量发货 (末端)
 router.post('/:id/confirm', confirmReceipt); // 确认收货 (Mobile用)
 router.post('/:id/delivery-method', setDeliveryMethod); // 设置配送方式 (Mobile用)
 router.post('/:id/urge', urgeOrder);    // 催单 (Mobile用)
+router.post('/:id/cancel', cancelOrder); // 取消订单
 
 export default router;

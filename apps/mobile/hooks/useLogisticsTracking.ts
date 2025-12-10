@@ -16,6 +16,7 @@ export const useLogisticsTracking = ({ map, AMap, orderId, startPoint, initialPa
     const carMarkerRef = useRef<AMap.Marker | null>(null);
     const passedPolylineRef = useRef<AMap.Polyline | null>(null);
     const pathRef = useRef<Array<[number, number]>>(initialPath || [startPoint]);
+    const shouldTrackRouteRef = useRef(true); // ✅ 控制是否继续绘制轨迹
 
     // ✅ 直接从 store 获取更新函数
     const { updateFromSocket } = useOrderActions();
@@ -30,6 +31,9 @@ export const useLogisticsTracking = ({ map, AMap, orderId, startPoint, initialPa
 
     useEffect(() => {
         if (!map || !AMap) return;
+
+        // Reset tracking state on new order/init
+        shouldTrackRouteRef.current = true;
 
         if (!carMarkerRef.current) {
             // ✅ 修复：每次初始化（或重新初始化）时重置路径，防止残留上一单的路径
@@ -60,8 +64,24 @@ export const useLogisticsTracking = ({ map, AMap, orderId, startPoint, initialPa
                 map.setFitView([passedPolylineRef.current]);
             }
             
-            // ❌ 删除：不要监听 marker 的 moving 事件来画线，因为 marker 移动是动画插值，会导致线非常密集且不真实
-            // ✅ 应该在收到 socket 事件时显式更新路径
+            // ✅ 监听 marker 移动，实现“货物牵引路线”效果
+            carMarkerRef.current.on('moving', (e: any) => {
+                // 如果不再追踪（如已送达），停止更新轨迹
+                if (!shouldTrackRouteRef.current || !passedPolylineRef.current) return;
+                
+                const currentPos = e.target.getPosition();
+                // 实时更新路径：历史路径 + 当前移动点
+                passedPolylineRef.current.setPath([...pathRef.current, [currentPos.lng, currentPos.lat]]);
+            });
+
+            carMarkerRef.current.on('moveend', () => {
+                if (!shouldTrackRouteRef.current || !passedPolylineRef.current || !carMarkerRef.current) return;
+                
+                const currentPos = carMarkerRef.current.getPosition();
+                // 移动结束，将当前点固定到历史路径中
+                pathRef.current.push([currentPos.lng, currentPos.lat]);
+                passedPolylineRef.current.setPath(pathRef.current);
+            });
 
             map.on('dragstart', () => toggleFollow(false));
         }
@@ -75,16 +95,17 @@ export const useLogisticsTracking = ({ map, AMap, orderId, startPoint, initialPa
             socketRef.current.on('position_update', (data: PositionUpdatePayload) => {
                 if (data.orderId !== orderId) return;
 
+                // ✅ 状态检查：如果是返程、送达或取消，停止绘制轨迹
+                if (data.status === 'returning' || data.status === 'delivered' || data.status === 'cancelled') {
+                    shouldTrackRouteRef.current = false;
+                }
+
                 if (carMarkerRef.current) {
                     const nextPos: [number, number] = [data.lng, data.lat];
+                    // 平滑移动
                     carMarkerRef.current.moveTo(nextPos, { duration: data.speed ? data.speed * 1.1 : 200, autoRotation: false });
 
-                    // ✅ 核心修复：在这里更新轨迹线
-                    if (passedPolylineRef.current) {
-                         // 将新点加入到历史路径中
-                         pathRef.current.push(nextPos);
-                         passedPolylineRef.current.setPath(pathRef.current);
-                    }
+                    // ❌ 移除手动 setPath，交由 moving 事件处理，实现“牵引”效果
 
                     if (data.resetView) {
                         toggleFollow(true);

@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Table, Tag, Button, Card, message, Space, Popover, Typography, Modal } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
-import { fetchOrders, shipOrder } from '../services/orderService';
+import { fetchOrders, shipOrder, cancelOrder } from '../services/orderService';
 import { Order, OrderStatus, OrderStatusMap } from '@el/types';
 import CreateOrderModal from './CreateOrderModal';
 import { useMerchant } from '../contexts/MerchantContext';
@@ -89,6 +89,27 @@ const OrderList: React.FC = () => {
             }
         } catch (error) {
             console.error(error);
+        } finally {
+            setActionLoading(null);
+        }
+    };
+
+    const handleCancel = async (id: string) => {
+        setActionLoading(id);
+        try {
+            const res = await cancelOrder(id);
+            if (res.code === 200) {
+                message.success('订单已取消');
+                // 更新列表
+                setOrders(prev => prev.map(item =>
+                    item.id === id ? { ...item, status: OrderStatus.CANCELLED } : item
+                ));
+            } else {
+                message.error(res.msg || '取消失败');
+            }
+        } catch (error) {
+            console.error(error);
+            message.error('系统错误');
         } finally {
             setActionLoading(null);
         }

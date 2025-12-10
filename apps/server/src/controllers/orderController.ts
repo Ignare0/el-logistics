@@ -2,7 +2,7 @@ import { Request, Response } from 'express';
 import { error, success } from '../utils/response';
 import { OrderStatus, TimelineEvent } from '@el/types';
 import { ServerOrder } from '../types/internal';
-import { startSimulation, startBatchSimulation } from "../utils/simulator";
+import { startSimulation, startBatchSimulation, stopSimulation } from "../utils/simulator";
 import { planLogisticsRoute } from '../services/logisticsService';
 import { optimizeBatchRoute, distributeOrders } from '../utils/routeOptimizer';
 import { NODES } from '../mock/nodes';
@@ -142,8 +142,8 @@ const enrichOrderWithCities = (order: ServerOrder) => {
 };
 // --- 1. 获取列表 ---
 export const getOrders = (req: Request, res: Response) => {
-    // 支持 merchantId 和 customerId 过滤
-    const { merchantId, customerId } = req.query;
+    // 支持 merchantId、customerId、phone 过滤
+    const { merchantId, customerId, phone } = req.query as { merchantId?: string; customerId?: string; phone?: string };
 
     let filteredOrders = orders;
 
@@ -155,6 +155,10 @@ export const getOrders = (req: Request, res: Response) => {
         filteredOrders = filteredOrders.filter(o => o.customerId === customerId);
     }
 
+    if (phone) {
+        filteredOrders = filteredOrders.filter(o => o.customer?.phone === phone);
+    }
+
     const enrichedOrders = filteredOrders.map(enrichOrderWithCities).map(sortOrderTimeline);
     res.json(success(enrichedOrders));
 };
@@ -162,13 +166,23 @@ export const getOrders = (req: Request, res: Response) => {
 // --- 2. 获取详情 ---
 export const getOrderById = (req: Request, res: Response) => {
     const { id } = req.params;
+    const { phone, customerId } = req.query as { phone?: string; customerId?: string };
     const order = orders.find(o => o.id === id);
-    if (order) {
-        const sortedOrder = sortOrderTimeline(JSON.parse(JSON.stringify(order)));
-        res.json(success(enrichOrderWithCities(sortedOrder)));
-    } else {
-        res.status(404).json(error('订单不存在', 404));
+
+    if (!order) {
+        return res.status(404).json(error('订单不存在', 404));
     }
+
+    // 数据隔离：如果携带 phone/customerId，则必须匹配，否则视为不存在
+    if (phone && order.customer?.phone !== phone) {
+        return res.status(404).json(error('订单不存在', 404));
+    }
+    if (customerId && order.customerId !== customerId) {
+        return res.status(404).json(error('订单不存在', 404));
+    }
+
+    const sortedOrder = sortOrderTimeline(JSON.parse(JSON.stringify(order)));
+    res.json(success(enrichOrderWithCities(sortedOrder)));
 };
 
 // --- 3. [新增] 创建订单 ---
@@ -420,4 +434,45 @@ export const urgeOrder = (req: Request, res: Response) => {
     }
 
     res.json(success(order, '催单成功，已优先处理'));
+};
+
+// --- 8. [新增] 取消订单 ---
+export const cancelOrder = (req: Request, res: Response) => {
+    const { id } = req.params;
+    const order = orders.find(o => o.id === id);
+
+    if (!order) return res.status(404).json(error('订单不存在'));
+
+    if (order.status === OrderStatus.COMPLETED || order.status === OrderStatus.DELIVERED) {
+        return res.status(400).json(error('订单已送达或已完成，无法取消'));
+    }
+
+    if (order.status === OrderStatus.CANCELLED) {
+        return res.status(400).json(error('订单已取消，请勿重复操作'));
+    }
+
+    const oldStatus = order.status;
+    order.status = OrderStatus.CANCELLED;
+    
+    order.timeline.push({
+        status: 'cancelled',
+        description: '用户取消订单',
+        timestamp: new Date().toISOString()
+    });
+
+    // Notify via Socket
+    const io = req.app.get('socketio');
+    if (io) {
+        // Stop any ongoing simulation
+        stopSimulation(id);
+
+        io.emit('order_update', order);
+        
+        // If it was shipping, we might want to emit a specific event or let the simulator handle the status change
+        if (oldStatus === OrderStatus.SHIPPING) {
+            console.log(`🚫 订单 ${id} 在运输途中被取消`);
+        }
+    }
+
+    res.json(success(order, '订单已取消'));
 };

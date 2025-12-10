@@ -49,3 +49,8 @@ export const dispatchBatch = async (orderIds: string[]): Promise<ApiResponse<any
 export const fetchSelectableNodes = async (): Promise<ApiResponse<SelectableNodes>> => {
     return request.get<ApiResponse<SelectableNodes>, ApiResponse<SelectableNodes>>('/nodes/selectable');
 };
+
+// ✅ 新增：取消订单
+export const cancelOrder = async (orderId: string): Promise<ApiResponse<Order>> => {
+    return request.post<ApiResponse<Order>, ApiResponse<Order>>(`/orders/${orderId}/cancel`);
+};

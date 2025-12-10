@@ -10,6 +10,16 @@ import { LogisticsNode } from '../domain/Node';
 // 存储全局定时器，防止冲突
 const activeTimers = new Map<string, boolean>();
 
+/**
+ * 停止模拟
+ */
+export const stopSimulation = (orderId: string) => {
+    if (activeTimers.has(orderId)) {
+        console.log(`🛑 停止订单 ${orderId} 的模拟`);
+        activeTimers.delete(orderId);
+    }
+};
+
 // ==========================================
 // 1. 辅助工具函数 (Helpers)
 // ==========================================
@@ -123,7 +133,7 @@ export const startSimulation = async (io: Server, order: ServerOrder, startIndex
     try {
         // --- 循环每一段路 (Node A -> Node B) ---
         for (let i = startIndex; i < routeNodes.length - 1; i++) {
-            if (!activeTimers.get(id)) break;
+            if (!activeTimers.get(id) || order.status === OrderStatus.CANCELLED) break;
 
             const currentNode = routeNodes[i];
             const nextNode = routeNodes[i + 1];
@@ -165,7 +175,7 @@ export const startSimulation = async (io: Server, order: ServerOrder, startIndex
                 // 暂停循环，等待回调唤醒
                 // 这里我们简单地退出循环，当用户调用 API 设置方式后，由 Controller 重新调用 startSimulation
                 // 但需要注意：重新调用时应该从当前位置继续
-                activeTimers.set(id, false); 
+                activeTimers.delete(id); 
                 return;
             }
 
@@ -182,7 +192,7 @@ export const startSimulation = async (io: Server, order: ServerOrder, startIndex
                 };
                 io.emit('position_update', pickupPayload);
                 updateOrderMemory(order, pickupPayload);
-                activeTimers.set(id, false);
+                activeTimers.delete(id);
                 return;
             }
             
@@ -228,7 +238,7 @@ export const startSimulation = async (io: Server, order: ServerOrder, startIndex
         }
 
         // --- 阶段 D: 最终送达 ---
-        if (activeTimers.get(id)) {
+        if (activeTimers.get(id) && order.status !== OrderStatus.CANCELLED) {
             const lastNode = routeNodes[routeNodes.length - 1];
             const deliveredPayload: PositionUpdatePayload = {
                 orderId: id,
@@ -274,7 +284,7 @@ export const startSimulation = async (io: Server, order: ServerOrder, startIndex
                 }
 
                 // 确保发送最后一个点
-                if (returnRoutePoints.length > 0) {
+                if (returnRoutePoints.length > 0 && activeTimers.get(id)) {
                     const [lng, lat] = returnRoutePoints[returnRoutePoints.length - 1];
                     const returnPayload: PositionUpdatePayload = {
                         orderId: id,
@@ -309,12 +319,12 @@ export const startSimulation = async (io: Server, order: ServerOrder, startIndex
             }
 
             console.log(`🏁 订单 ${id} 模拟结束`);
-            activeTimers.set(id, false);
+            activeTimers.delete(id);
         }
 
     } catch (e) {
         console.error(`❌ 模拟过程出错:`, e);
-        activeTimers.set(id, false);
+        activeTimers.delete(id);
     }
 };
 
@@ -327,7 +337,7 @@ export const startBatchSimulation = async (io: Server, orders: ServerOrder[], st
     const batchId = `BATCH_${Date.now()}`;
     console.log(`🚀 开启批量配送模拟，共 ${orders.length} 单`);
 
-    // 标记所有订单为运输中
+    // 标记所有订单为运输中（批量场景不依赖 activeTimers，中途取消直接跳出）
     orders.forEach(o => activeTimers.set(o.id, true));
 
     try {
@@ -335,6 +345,13 @@ export const startBatchSimulation = async (io: Server, orders: ServerOrder[], st
 
         // 遍历每个订单作为目的地
         for (const order of orders) {
+            // 0. 检查订单是否已取消 (尚未出发)
+            if ((order.status as any) === 'cancelled') {
+                console.log(`⚠️ 订单 ${order.id} 已取消，跳过配送`);
+                activeTimers.delete(order.id);
+                continue;
+            }
+
             // 构建临时的 Target Node
             const targetNode: LogisticsNode = {
                 id: `ADDR_${order.id}`,
@@ -346,10 +363,30 @@ export const startBatchSimulation = async (io: Server, orders: ServerOrder[], st
             console.log(`>>> 骑手前往: ${targetNode.name}`);
 
             // 获取骑行路径
+            // 注意：如果 currentNode 是临时位置（即上单半路取消），这里会规划从半路到新目的地的路径
             const routePoints = await getRoutePoints('DELIVERY', currentNode, targetNode);
+
+            let isCancelledMidway = false;
 
             // 移动过程
             for (let j = 0; j < routePoints.length; j += 2) { // 步长2，稍微快点
+                // 1. 检查订单是否已取消 (途中)
+                if (order.status === OrderStatus.CANCELLED) {
+                    console.log(`🛑 配送途中订单 ${order.id} 被取消，骑手停止前往`);
+                    
+                    // 更新当前节点为骑手当前位置，以便下一次循环从这里开始
+                    const [currentLng, currentLat] = routePoints[j];
+                    currentNode = {
+                        id: `RIDER_LOC_${Date.now()}`,
+                        name: '骑手临时位置',
+                        type: 'ADDRESS',
+                        location: { lat: currentLat, lng: currentLng }
+                    };
+                    
+                    isCancelledMidway = true;
+                    break; // 跳出移动循环
+                }
+
                 const [lng, lat] = routePoints[j];
                 const now = new Date().toISOString();
 
@@ -367,8 +404,8 @@ export const startBatchSimulation = async (io: Server, orders: ServerOrder[], st
 
                 // 向所有关联订单推送位置更新
                 orders.forEach(o => {
-                    // 如果这个订单已经送达了，就不再推移动位置了（或者也可以推，看需求）
-                    if (o.status !== OrderStatus.DELIVERED && o.status !== OrderStatus.COMPLETED) {
+                    // 如果这个订单已经送达了、完成或取消了，就不再推移动位置
+                    if (o.status !== OrderStatus.DELIVERED && o.status !== OrderStatus.COMPLETED && (o.status as any) !== 'cancelled') {
                         const p = { ...payload, orderId: o.id };
                         io.emit('position_update', p);
                         updateOrderMemory(o, p);
@@ -376,6 +413,12 @@ export const startBatchSimulation = async (io: Server, orders: ServerOrder[], st
                 });
 
                 await wait(100); // 模拟移动速度
+            }
+
+            // 如果是中途取消，跳过送达逻辑，直接进入下一单
+            if (isCancelledMidway) {
+                activeTimers.delete(order.id);
+                continue;
             }
 
             // 到达当前订单目的地
@@ -397,7 +440,7 @@ export const startBatchSimulation = async (io: Server, orders: ServerOrder[], st
             
             // 模拟卸货/打电话
             await wait(1000);
-            }
+        }
 
             // ==========================================
             // Step 4 (Part 2): Return to Station (Phase 4 Requirement)
@@ -423,7 +466,7 @@ export const startBatchSimulation = async (io: Server, orders: ServerOrder[], st
 
                     // Broadcast to all orders in this batch so users see the rider returning
                     orders.forEach(o => {
-                         if (o.status !== OrderStatus.COMPLETED) { // Allow delivered orders to see return trip if needed
+                         if (o.status !== OrderStatus.COMPLETED && (o.status as any) !== 'cancelled') { // 取消订单不再接收返程广播
                             const p = { ...payload, orderId: o.id };
                             io.emit('position_update', p);
                         }
@@ -446,7 +489,7 @@ export const startBatchSimulation = async (io: Server, orders: ServerOrder[], st
                         timestamp: now
                     };
                     orders.forEach(o => {
-                        if (o.status !== OrderStatus.COMPLETED) {
+                        if (o.status !== OrderStatus.COMPLETED && (o.status as any) !== 'cancelled') {
                            const p = { ...payload, orderId: o.id };
                            io.emit('position_update', p);
                        }
@@ -466,7 +509,7 @@ export const startBatchSimulation = async (io: Server, orders: ServerOrder[], st
                 };
                 
                 orders.forEach(o => {
-                    if (o.status !== OrderStatus.COMPLETED) {
+                    if (o.status !== OrderStatus.COMPLETED && (o.status as any) !== 'cancelled') {
                          const p = { ...idlePayload, orderId: o.id };
                          io.emit('position_update', p);
                     }

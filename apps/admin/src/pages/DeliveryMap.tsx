@@ -1,8 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Card, Button, message, Alert, Space, Badge, Modal } from 'antd';
+import { Card, Button, message, Alert, Space, Badge, Modal, Tag } from 'antd';
 import AMapLoader from '@amap/amap-jsapi-loader';
 import { Order, OrderStatus } from '@el/types';
-import { fetchOrders, dispatchBatch } from '../services/orderService';
+import { fetchOrders, dispatchBatch, cancelOrder } from '../services/orderService';
 import { useMerchant } from '../contexts/MerchantContext';
 import { io, Socket } from 'socket.io-client';
 
@@ -30,6 +30,10 @@ const DeliveryMap: React.FC = () => {
     // 强制派单 Modal
     const [forceDispatchModalVisible, setForceDispatchModalVisible] = useState(false);
     const [forceDispatchOrder, setForceDispatchOrder] = useState<Order | null>(null);
+
+    // 详情 Modal
+    const [detailModalVisible, setDetailModalVisible] = useState(false);
+    const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
 
     const { currentMerchant } = useMerchant();
 
@@ -440,6 +444,9 @@ const DeliveryMap: React.FC = () => {
 
             if (order.status === OrderStatus.SHIPPING) {
                  bgColor = '#2196F3'; // Blue (Shipping)
+            } else if (order.status === OrderStatus.CANCELLED) {
+                 bgColor = '#9E9E9E'; // Grey
+                 borderColor = '#ccc';
             }
             
             // 构建自定义 Marker 内容
@@ -470,6 +477,11 @@ const DeliveryMap: React.FC = () => {
                 extData: { orderId: order.id, status: order.status, score: score, isUrged: order.isUrged }
             });
             
+            marker.on('click', () => {
+                setSelectedOrder(order);
+                setDetailModalVisible(true);
+            });
+
             marker.setMap(mapRef.current);
             markersRef.current.push(marker);
         });
@@ -494,7 +506,7 @@ const DeliveryMap: React.FC = () => {
             markersRef.current.forEach(marker => {
                 const ext = marker.getExtData();
                 marker.show(); // 显示所有
-                marker.off('click'); // 清除事件
+                // marker.off('click'); // ✅ 保留点击事件用于查看详情
                 
                 // 恢复默认图标 (这里需要根据优先级恢复)
                 // 由于我们现在使用自定义 content，所以只要不被覆盖成灰色就行
@@ -525,7 +537,7 @@ const DeliveryMap: React.FC = () => {
         markersRef.current.forEach(marker => {
             const position = marker.getPosition();
             const ext = marker.getExtData();
-            marker.off('click'); // 清除事件
+            // marker.off('click'); // ✅ 保留点击事件
 
             const isPointInRing = AMap.GeometryUtil.isPointInRing(position, path);
             
@@ -592,16 +604,10 @@ const DeliveryMap: React.FC = () => {
                 `;
                 marker.setContent(content);
 
-                // 绑定点击事件：强制发货
-                if (ext.status === OrderStatus.PENDING) {
-                     marker.on('click', () => {
-                         const order = orders.find(o => o.id === ext.orderId);
-                         if (order) {
-                             setForceDispatchOrder(order);
-                             setForceDispatchModalVisible(true);
-                         }
-                     });
-                }
+                // 绑定点击事件：强制发货 -> ✅ 移入详情弹窗中处理
+                // if (ext.status === OrderStatus.PENDING) {
+                //      marker.on('click', () => { ... });
+                // }
             }
         });
         
@@ -641,6 +647,24 @@ const DeliveryMap: React.FC = () => {
             setHasPolygon(false); // ✅ 更新状态
             checkOrdersInPolygon(); // 重新检查，恢复显示所有
             message.info('电子围栏已清除，显示所有订单');
+        }
+    };
+
+    const handleCancelOrder = async () => {
+        if (!selectedOrder) return;
+        message.loading({ content: '正在取消订单...', key: 'cancel_order' });
+        try {
+            const res = await cancelOrder(selectedOrder.id);
+            if (res.code === 200) {
+                message.success({ content: '订单已取消', key: 'cancel_order' });
+                setDetailModalVisible(false);
+                setSelectedOrder(null);
+                loadOrders(); // 刷新状态
+            } else {
+                message.error({ content: res.msg || '取消失败', key: 'cancel_order' });
+            }
+        } catch (e) {
+            message.error({ content: '系统错误', key: 'cancel_order' });
         }
     };
 
@@ -745,6 +769,87 @@ const DeliveryMap: React.FC = () => {
                 <p>订单：{forceDispatchOrder?.customer.address}</p>
                 <p style={{ color: 'red' }}>该订单超出当前配送围栏范围，强制派送可能导致配送超时或骑手投诉。</p>
                 <p>确认要忽略限制继续派单吗？</p>
+            </Modal>
+
+            <Modal
+                title="📋 订单详情"
+                open={detailModalVisible}
+                onCancel={() => {
+                    setDetailModalVisible(false);
+                    setSelectedOrder(null);
+                }}
+                footer={[
+                    <Button key="close" onClick={() => setDetailModalVisible(false)}>
+                        关闭
+                    </Button>,
+                    selectedOrder?.status !== OrderStatus.CANCELLED && selectedOrder?.status !== OrderStatus.COMPLETED && selectedOrder?.status !== OrderStatus.DELIVERED && (
+                        <Button 
+                            key="cancel" 
+                            danger 
+                            onClick={handleCancelOrder}
+                        >
+                            取消订单
+                        </Button>
+                    ),
+                    selectedOrder?.status === OrderStatus.PENDING && (
+                        <Button 
+                            key="force" 
+                            type="dashed"
+                            danger
+                            onClick={() => {
+                                setForceDispatchOrder(selectedOrder);
+                                setForceDispatchModalVisible(true);
+                                setDetailModalVisible(false);
+                            }}
+                        >
+                            强制发货
+                        </Button>
+                    )
+                ]}
+            >
+                {selectedOrder && (
+                    <div className="space-y-4">
+                        <div>
+                            <p className="text-gray-500 mb-1">订单号</p>
+                            <p className="font-mono">{selectedOrder.id}</p>
+                        </div>
+                        <div>
+                            <p className="text-gray-500 mb-1">状态</p>
+                            <p>
+                                {selectedOrder.status === OrderStatus.CANCELLED ? 
+                                    <Tag color="red">已取消</Tag> : 
+                                    <Tag color="blue">{selectedOrder.status}</Tag>
+                                }
+                            </p>
+                        </div>
+                        <div>
+                            <p className="text-gray-500 mb-1">配送地址</p>
+                            <p className="font-bold text-lg">{selectedOrder.customer.address}</p>
+                            <p className="text-gray-600">{selectedOrder.customer.name} {selectedOrder.customer.phone}</p>
+                        </div>
+                        <div className="flex gap-4">
+                            <div>
+                                <p className="text-gray-500 mb-1">优先级分数</p>
+                                <p className="font-bold text-xl">{selectedOrder.priorityScore}</p>
+                            </div>
+                            {selectedOrder.isUrged && (
+                                <div className="flex items-center text-red-500">
+                                    <span className="text-2xl mr-1">🔥</span>
+                                    <span className="font-bold">用户催单</span>
+                                </div>
+                            )}
+                        </div>
+                        
+                        {selectedOrder.status === OrderStatus.SHIPPING && (
+                            <Alert 
+                                message="正在配送中" 
+                                description="取消订单将导致骑手停止前往并重新规划路线。"
+                                type="info" 
+                                showIcon 
+                            />
+                        )}
+                    </div>
+                )}
             </Modal>
         </Card>
     );

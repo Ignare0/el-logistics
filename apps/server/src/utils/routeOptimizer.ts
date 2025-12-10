@@ -27,13 +27,17 @@ function deg2rad(deg: number): number {
  * Optimized Batch Routing Algorithm (Urgent First + Closed-Loop TSP)
  * 
  * Strategy:
- * 1. Filter & Split: Separate Urgent (Score >= 80, Urged, or Express) from Normal.
- * 2. Sort Urgent: Station -> Nearest Urgent -> ... (One-way sequence).
- * 3. Optimize Normal (Cheapest Insertion):
- *    - Start: Last Urgent Order (or Station).
+ * 1. Filter & Split:
+ *    - Tier 1: Urged Orders (Customer Urged) - HIGHEST PRIORITY
+ *    - Tier 2: Urgent Orders (Score >= 80 or Express)
+ *    - Tier 3: Normal Orders
+ * 2. Sort Tier 1: Station -> Nearest Urged -> ...
+ * 3. Sort Tier 2: Last Tier 1 -> Nearest Urgent -> ...
+ * 4. Optimize Tier 3 (Cheapest Insertion):
+ *    - Start: Last Tier 2 Location (or Last Tier 1, or Station).
  *    - End: Station (Fixed Return).
  *    - Goal: Minimize total distance traversing all normal orders and returning to station.
- * 4. Merge: [Urgent List] + [Optimized Normal List].
+ * 5. Merge: [Tier 1] + [Tier 2] + [Optimized Tier 3].
  */
 export const optimizeBatchRoute = (startNode: LogisticsNode, orders: ServerOrder[]): ServerOrder[] => {
     if (!orders || orders.length === 0) {
@@ -41,16 +45,18 @@ export const optimizeBatchRoute = (startNode: LogisticsNode, orders: ServerOrder
     }
 
     // Step 1: Filter & Split
-    const urgentOrders: ServerOrder[] = [];
-    const normalOrders: ServerOrder[] = [];
+    const urgedOrders: ServerOrder[] = [];   // Tier 1
+    const urgentOrders: ServerOrder[] = [];  // Tier 2
+    const normalOrders: ServerOrder[] = [];  // Tier 3
 
     orders.forEach(order => {
-        // Check for urgent criteria
         const score = (order as any).priorityScore || 0;
         const isUrged = (order as any).isUrged || false;
         const isExpress = order.serviceLevel === 'EXPRESS';
 
-        if (score >= 80 || isUrged || isExpress) {
+        if (isUrged) {
+            urgedOrders.push(order);
+        } else if (score >= 80 || isExpress) {
             urgentOrders.push(order);
         } else {
             normalOrders.push(order);
@@ -59,41 +65,42 @@ export const optimizeBatchRoute = (startNode: LogisticsNode, orders: ServerOrder
 
     const stationPoint: Point = { lat: startNode.location.lat, lng: startNode.location.lng };
 
-    // Step 2: Sort Urgent Orders (Simple Nearest Neighbor from Station)
-    // We re-sort them to form a chain: Station -> U1 -> U2 ...
-    // Note: For a small number of urgent orders, sorting by distance from Station is 'okay',
-    // but a proper chain (Station->Closest, then Closest->NextClosest) is better.
-    // Let's implement a simple chain builder for Urgent as well.
-    const sortedUrgent: ServerOrder[] = [];
-    let currentUrgentPoint = stationPoint;
-    const tempUrgent = [...urgentOrders];
+    // Helper to sort a list of orders into a chain starting from a point
+    const buildChain = (start: Point, list: ServerOrder[]): { sorted: ServerOrder[], lastPoint: Point } => {
+        const sorted: ServerOrder[] = [];
+        let current = start;
+        const temp = [...list];
 
-    while (tempUrgent.length > 0) {
-        let nearestIdx = -1;
-        let minD = Infinity;
-        for (let i = 0; i < tempUrgent.length; i++) {
-            const p = { lat: tempUrgent[i].logistics.endLat, lng: tempUrgent[i].logistics.endLng };
-            const d = getDistance(currentUrgentPoint, p);
-            if (d < minD) {
-                minD = d;
-                nearestIdx = i;
+        while (temp.length > 0) {
+            let nearestIdx = -1;
+            let minD = Infinity;
+            for (let i = 0; i < temp.length; i++) {
+                const p = { lat: temp[i].logistics.endLat, lng: temp[i].logistics.endLng };
+                const d = getDistance(current, p);
+                if (d < minD) {
+                    minD = d;
+                    nearestIdx = i;
+                }
+            }
+            if (nearestIdx !== -1) {
+                const next = temp.splice(nearestIdx, 1)[0];
+                sorted.push(next);
+                current = { lat: next.logistics.endLat, lng: next.logistics.endLng };
             }
         }
-        if (nearestIdx !== -1) {
-            const next = tempUrgent.splice(nearestIdx, 1)[0];
-            sortedUrgent.push(next);
-            currentUrgentPoint = { lat: next.logistics.endLat, lng: next.logistics.endLng };
-        }
-    }
+        return { sorted, lastPoint: current };
+    };
 
-    // Step 3: Optimize Normal Orders (Cheapest Insertion with Fixed Start & End)
-    // Start: Last Urgent Location (or Station)
+    // Step 2: Sort Tier 1 (Urged)
+    const tier1 = buildChain(stationPoint, urgedOrders);
+
+    // Step 3: Sort Tier 2 (Urgent) - Start from last point of Tier 1 (or Station)
+    const tier2 = buildChain(tier1.lastPoint, urgentOrders);
+
+    // Step 4: Optimize Tier 3 (Normal)
+    // Start: Last Tier 2 Location (or Tier 1, or Station)
     // End: Station
-    let startPoint = stationPoint;
-    if (sortedUrgent.length > 0) {
-        const last = sortedUrgent[sortedUrgent.length - 1];
-        startPoint = { lat: last.logistics.endLat, lng: last.logistics.endLng };
-    }
+    const startPoint = tier2.lastPoint;
     const endPoint = stationPoint;
 
     // Path represents the sequence of Normal Orders.
@@ -150,8 +157,8 @@ export const optimizeBatchRoute = (startNode: LogisticsNode, orders: ServerOrder
         }
     }
 
-    // Step 4: Merge
-    return [...sortedUrgent, ...path];
+    // Step 5: Merge
+    return [...tier1.sorted, ...tier2.sorted, ...path];
 };
 
 /**

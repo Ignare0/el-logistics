@@ -28,7 +28,8 @@ export enum OrderStatus {
     SHIPPING = 'shipping',     // 运输中
     DELIVERED = 'delivered',   // 已送达（车到了）
     COMPLETED = 'completed',   // 已完成（用户确认收货）
-    EXCEPTION = 'exception'    // 异常
+    EXCEPTION = 'exception',   // 异常
+    CANCELLED = 'cancelled'    // 已取消
 }
 
 // 状态对应的 UI 展示配置（颜色、文案）
@@ -37,7 +38,8 @@ export const OrderStatusMap: Record<OrderStatus, { text: string; color: string }
     [OrderStatus.SHIPPING]: { text: '运输中', color: 'blue' },
     [OrderStatus.DELIVERED]: { text: '已送达', color: 'green' },
     [OrderStatus.COMPLETED]: { text: '已完成', color: 'gray' },
-    [OrderStatus.EXCEPTION]: { text: '异常', color: 'red' }
+    [OrderStatus.EXCEPTION]: { text: '异常', color: 'red' },
+    [OrderStatus.CANCELLED]: { text: '已取消', color: 'gray' }
 };
 
 export interface OrderItem {
@@ -104,7 +106,7 @@ export interface PositionUpdatePayload {
     orderId: string;
     lat: number;
     lng: number;
-    status: 'arrived_node' | 'shipping' | 'delivered' | 'waiting_for_selection' | 'returning' | 'rider_idle';
+    status: 'arrived_node' | 'shipping' | 'delivered' | 'waiting_for_selection' | 'returning' | 'rider_idle' | 'cancelled';
     statusText: string;
     transport?: 'AIR' | 'TRUNK' | 'DELIVERY';
     zoom?: number;

@@ -21,17 +21,28 @@ export const fetcher = async <T>(url: string): Promise<T> => {
     }
     return json.data;
 };
-export const getOrders = async (): Promise<Order[]> => {
+export const getOrders = async (phone?: string): Promise<Order[]> => {
     try {
-        return await fetcher<Order[]>(`${API_URL}/orders`);
+        const url = phone ? `${API_URL}/orders?phone=${encodeURIComponent(phone)}` : `${API_URL}/orders`;
+        return await fetcher<Order[]>(url);
     } catch (e) {
         console.error('获取订单列表失败', e);
-        return []; // 失败时返回空数组
+        return [];
     }
 };
 
 // 订单详情获取 (保持不变，但会被 useOrder hook 使用)
-export const getOrderById = (id: string) => fetcher<Order>(`${API_URL}/orders/${id}`);
+export const getOrderById = async (id: string, phone?: string): Promise<Order | null> => {
+    try {
+        const url = phone ? `${API_URL}/orders/${id}?phone=${encodeURIComponent(phone)}` : `${API_URL}/orders/${id}`;
+        const res = await fetch(url, { cache: 'no-store' });
+        if (!res.ok) return null;
+        const json = (await res.json()) as ApiResponse<Order>;
+        return json.code === 200 ? json.data : null;
+    } catch (e) {
+        return null;
+    }
+};
 
 // 确认收货接口
 export const confirmOrderReceipt = async (id: string): Promise<Order | null> => {
@@ -79,6 +90,21 @@ export const urgeOrder = async (id: string): Promise<Order | null> => {
         return json.code === 200 ? json.data : null;
     } catch (e) {
         console.error('催单失败', e);
+        return null;
+    }
+};
+
+export const cancelOrder = async (id: string): Promise<Order | null> => {
+    try {
+        const res = await fetch(`${API_URL}/orders/${id}/cancel`, {
+            method: 'POST',
+            cache: 'no-store'
+        });
+        if (!res.ok) return null;
+        const json = (await res.json()) as ApiResponse<Order>;
+        return json.code === 200 ? json.data : null;
+    } catch (e) {
+        console.error('取消订单失败', e);
         return null;
     }
 };
