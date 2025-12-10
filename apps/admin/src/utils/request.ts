@@ -2,7 +2,7 @@ import axios, { AxiosInstance, AxiosError, InternalAxiosRequestConfig, AxiosResp
 import { message } from 'antd'; // 引入全局提示，统一处理错误
 
 // 从环境变量读取，如果没配则回退到 localhost
-const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:4000/api';
+const BASE_URL = (import.meta.env.VITE_API_URL || import.meta.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api');
 
 const request: AxiosInstance = axios.create({
     baseURL: BASE_URL,

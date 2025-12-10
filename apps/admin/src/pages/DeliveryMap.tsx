@@ -174,7 +174,8 @@ const DeliveryMap: React.FC = () => {
     }, [currentMerchant]);
 
     const connectSocket = () => {
-        const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:4000'; // 这里的地址应该从配置读取
+        const raw = (import.meta.env.VITE_API_URL || import.meta.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000');
+        const apiUrl = raw.replace('/api', '');
         socketRef.current = io(apiUrl);
         
         socketRef.current.on('connect', () => {
