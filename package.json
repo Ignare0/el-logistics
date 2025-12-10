@@ -6,8 +6,8 @@
     "packages/*"
   ],
   "scripts": {
-    "build": "pnpm run build -w apps/server",
-    "test": "pnpm run test -w apps/server"
+    "build": "pnpm --filter apps/server run build",
+    "test": "pnpm --filter apps/server run test"
   },
   "engines": {
     "node": ">=20.0.0"
