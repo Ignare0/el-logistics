@@ -1,0 +1,15 @@
+{
+  "name": "el-logistics-root",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "pnpm run build -w apps/server",
+    "test": "pnpm run test -w apps/server"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}
