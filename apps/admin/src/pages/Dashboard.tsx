@@ -308,11 +308,9 @@ const Dashboard: React.FC = () => {
                     </Card>
                 </Col>
                 <Col span={5}>
-                    <Card bordered={false} hoverable>
+                    <Card bordered={false} hoverable style={{ position: 'relative' }}>
                         <Statistic title="在线骑手" value={riderPool.riders.filter(r => r.status !== 'offline').length || 0} prefix={<UserOutlined />} suffix={`(空闲 ${idleRiders})`} />
-                        <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 8 }}>
-                            <Button size="small" onClick={() => { setCfgMaxRiders(riderPool.maxRiders || 5); setCfgPerRiderMax(riderPool.perRiderMaxOrders || 2); setCfgVisible(true); }}>配置</Button>
-                        </div>
+                        <Button size="small" style={{ position: 'absolute', top: 8, right: 8 }} onClick={() => { setCfgMaxRiders(riderPool.maxRiders || 5); setCfgPerRiderMax(riderPool.perRiderMaxOrders || 2); setCfgVisible(true); }}>配置</Button>
                     </Card>
                 </Col>
                 <Col span={5}>
