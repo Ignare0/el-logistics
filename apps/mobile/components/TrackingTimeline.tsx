@@ -70,13 +70,20 @@ export const TrackingTimeline: React.FC<Props> = ({ order, onConfirm, onUrge, on
                 </div>
 
                 {/* 功能按钮栏 */}
-                <div className="grid grid-cols-5 gap-2 px-4 pb-4 pt-2">
+                <div className="grid grid-cols-5 gap-4 px-6 pb-5 pt-2">
 
                     <ActionButton 
                         icon={<svg className={`w-5 h-5 ${order.isUrged ? 'text-red-500' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>} 
                         text={order.isUrged ? "已催单" : "催派"}
                         onClick={onUrge}
-                        disabled={order.isUrged || order.status === OrderStatus.COMPLETED}
+                        disabled={order.isUrged || order.status === OrderStatus.COMPLETED || order.status === OrderStatus.DELIVERED || order.status === OrderStatus.CANCELLED}
+                    />
+
+                    <ActionButton 
+                        icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M7 7h10v10H7z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 10l4 4m0-4l-4 4" /></svg>} 
+                        text="取消订单"
+                        onClick={onCancel}
+                        disabled={order.status === OrderStatus.COMPLETED || order.status === OrderStatus.DELIVERED || order.status === OrderStatus.CANCELLED}
                     />
 
                 </div>
@@ -97,22 +104,7 @@ export const TrackingTimeline: React.FC<Props> = ({ order, onConfirm, onUrge, on
                     </button>
                 </div>
             )}
-            {order.status !== OrderStatus.DELIVERED && order.status !== OrderStatus.COMPLETED && order.status !== OrderStatus.CANCELLED && (
-                <div className="px-5 pt-3 flex gap-3">
-                    <button
-                        onClick={onUrge}
-                        className="flex-1 bg-yellow-500 text-white font-bold py-3 rounded-xl text-lg active:scale-95 transition-transform"
-                    >
-                        催单
-                    </button>
-                    <button
-                        onClick={onCancel}
-                        className="flex-1 bg-gray-800 text-white font-bold py-3 rounded-xl text-lg active:scale-95 transition-transform"
-                    >
-                        取消订单
-                    </button>
-                </div>
-            )}
+            {/* 底部矩形操作区已移除，统一使用顶部圆形操作按钮 */}
             {/* 2. 滚动内容区 (时间轴) */}
             {/* 这里的 flex-1 和 overflow-y-auto 确保只有这部分会滚动 */}
             <div className="flex-1 overflow-y-auto bg-white px-5 py-4">
