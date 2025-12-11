@@ -58,6 +58,9 @@ export interface Order {
     priorityScore?: number; // 动态优先级分数
     isUrged?: boolean; // 是否被催单
     isReturning?: boolean; // 骑手是否在返程中
+    queued?: boolean; // 是否因运力排队等待派送
+    queuedRiderIndex?: number; // 预计分配的骑手索引（排队中）
+    queuedSeq?: number; // 在该骑手队列中的顺序（排队中）
     promisedTime?: string; // 承诺送达时间
     
     items?: OrderItem[]; // 新增：订单商品明细

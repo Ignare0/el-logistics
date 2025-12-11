@@ -69,3 +69,8 @@ export interface RiderPoolRes {
 export const fetchRiders = async (): Promise<RiderPoolRes> => {
     return request.get<RiderPoolRes, RiderPoolRes>(`/riders`);
 };
+
+// 更新骑手配置
+export const updateRiderConfig = async (payload: { maxRiders?: number; perRiderMaxOrders?: number }): Promise<RiderPoolRes> => {
+    return request.post<RiderPoolRes, RiderPoolRes>(`/riders/config`, payload);
+};

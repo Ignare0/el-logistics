@@ -9,6 +9,8 @@ import CreateOrderModal from './CreateOrderModal';
 import { useMerchant } from '../contexts/MerchantContext';
 import { RocketOutlined, CarOutlined, MedicineBoxOutlined, CoffeeOutlined, ShopOutlined, FireOutlined } from '@ant-design/icons';
 import AMapLoader from '@amap/amap-jsapi-loader';
+import { io, Socket } from 'socket.io-client';
+import { fetchRiders } from '../services/orderService';
 
 const { Text } = Typography;
 
@@ -27,6 +29,8 @@ const OrderList: React.FC = () => {
     // 电子围栏相关
     const [fencePath, setFencePath] = useState<any[] | null>(null);
     const [amapLoaded, setAmapLoaded] = useState(false);
+    const [riderPool, setRiderPool] = useState<{ maxRiders: number; perRiderMaxOrders: number; riders: { id: number; status: 'idle'|'busy'|'returning'|'offline'; activeOrderIds: string[] }[] }>({ maxRiders: 5, perRiderMaxOrders: 2, riders: [] });
+    const socketRef = React.useRef<Socket | null>(null);
 
     useEffect(() => {
         // 加载 AMap 工具
@@ -55,6 +59,20 @@ const OrderList: React.FC = () => {
                 if (parsed?.sorter) setSavedSorter(parsed.sorter);
                 if (parsed?.pagination) setSavedPagination(parsed.pagination);
             } catch (e) {}
+        }
+
+        const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:4000';
+        try {
+            socketRef.current = io(apiUrl);
+            socketRef.current.on('rider_status', (payload: any) => {
+                if (payload && payload.riders) setRiderPool(payload);
+                else if (payload && payload.data && payload.data.riders) setRiderPool(payload.data);
+            });
+            fetchRiders().then(res => { if (res && (res as any).data) setRiderPool((res as any).data); }).catch(() => {});
+        } catch {}
+
+        return () => {
+            socketRef.current?.disconnect();
         }
     }, []);
 
@@ -93,6 +111,8 @@ const OrderList: React.FC = () => {
     }, [currentMerchant]); // 监听商家切换
 
     const handleShip = async (id: string) => {
+        const idleCount = riderPool.riders.filter(r => r.status === 'idle').length;
+        if (idleCount <= 0) { message.warning('当前无空闲骑手，无法操作'); return; }
         setActionLoading(id);
         try {
             const res = await shipOrder(id);
@@ -115,6 +135,8 @@ const OrderList: React.FC = () => {
     
 
     const handleForceDispatch = (record: Order) => {
+        const idleCount = riderPool.riders.filter(r => r.status === 'idle').length;
+        if (idleCount <= 0) { message.warning('当前无空闲骑手，无法操作'); return; }
         Modal.confirm({
             title: '⚠️ 强制派单确认',
             content: (
@@ -159,6 +181,7 @@ const OrderList: React.FC = () => {
                 );
             }
         },
+        
         {
             title: '类别',
             dataIndex: 'category',
@@ -274,15 +297,26 @@ const OrderList: React.FC = () => {
             dataIndex: 'status',
             key: 'status',
             width: 120,
-            filters: Object.values(OrderStatus).map(status => ({
-                text: OrderStatusMap[status].text,
-                value: status,
-            })),
-            onFilter: (value, record) => record.status === value,
+            filters: [
+                ...Object.values(OrderStatus).map(status => ({
+                    text: OrderStatusMap[status].text,
+                    value: status,
+                })),
+                { text: '排队中', value: 'QUEUED' }
+            ],
+            onFilter: (value, record) => {
+                if (value === 'QUEUED') return record.status === OrderStatus.PENDING && !!(record as any).queued;
+                return record.status === value;
+            },
             filteredValue: (savedFilters?.status as React.Key[] | null) || null,
-            render: (status: OrderStatus) => {
+            render: (status: OrderStatus, record) => {
                 const config = OrderStatusMap[status] || { text: status, color: 'default' };
-                return <Tag color={config.color}>{config.text}</Tag>;
+                return (
+                    <Space size={4}>
+                        <Tag color={config.color}>{config.text}</Tag>
+                        {record.queued && status === OrderStatus.PENDING && <Tag color="geekblue">排队中</Tag>}
+                    </Space>
+                );
             },
         },
         {
@@ -313,7 +347,7 @@ const OrderList: React.FC = () => {
             fixed: 'right',
             render: (_, record) => {
                 const inFence = isInFence(record);
-                const isPending = record.status === OrderStatus.PENDING;
+                const isPending = record.status === OrderStatus.PENDING && !record.queued;
 
                 if (!isPending) {
                     return <Button size="small" disabled>已操作</Button>;

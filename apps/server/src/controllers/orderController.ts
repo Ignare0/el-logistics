@@ -2,7 +2,7 @@ import { Request, Response } from 'express';
 import { error, success } from '../utils/response';
 import { OrderStatus, TimelineEvent } from '@el/types';
 import { ServerOrder } from '../types/internal';
-import { startSimulation, startBatchSimulation, stopSimulation, queryEvents, getRiderPool } from "../utils/simulator";
+import { startSimulation, startBatchSimulation, stopSimulation, queryEvents, getRiderPool, enqueueGlobal, updateRiderConfig } from "../utils/simulator";
 import { planLogisticsRoute } from '../services/logisticsService';
 import { optimizeBatchRoute, distributeOrders } from '../utils/routeOptimizer';
 import { NODES } from '../mock/nodes';
@@ -47,22 +47,9 @@ export const dispatchBatchOrders = (req: Request, res: Response) => {
         return res.status(400).json(error('没有可调度的有效订单'));
     }
 
-    // 2. 批量更新状态
-    const now = new Date().toISOString();
-    selectedOrders.forEach(order => {
-        order.status = OrderStatus.SHIPPING;
-        order.timeline.push({
-            status: 'shipping',
-            description: '调度中心已指派骑手，正在配送中',
-            timestamp: now,
-            location: '三里屯配送站'
-        });
-        
-        // 推送状态变更给前端
-        io.emit('order_update', order);
-    });
+    // 2. 状态更新延后到具体派送任务启动时处理（仅对立即派送的订单设置为 SHIPPING）
 
-    // 3. 启动批量模拟
+    // 3. 启动批量模拟（容量约束）
     // 假设起点都是三里屯配送站 (Station Node)
     const stationNode: LogisticsNode = {
         id: 'STATION_SLT',
@@ -72,27 +59,38 @@ export const dispatchBatchOrders = (req: Request, res: Response) => {
     };
 
     // 3.1 智能调度：分配骑手与路径规划
-    console.log('🔄 正在进行多骑手智能调度 (K-means + TSP)...');
-    
-    // 假设有 5 个空闲骑手可用（或者根据订单量动态分配）
-    const availableRiders = Math.max(2, Math.min(5, Math.ceil(selectedOrders.length / 2)));
-    const orderBatches = distributeOrders(stationNode, selectedOrders, availableRiders);
+    console.log('🔄 正在进行多骑手智能调度 (容量约束 + K-means + TSP)...');
 
-    console.log(`✅ 调度完成，共分配 ${orderBatches.length} 位骑手并发配送`);
+    const pool = getRiderPool();
+    const maxRiders = pool.maxRiders || 5;
+    const perRiderMax = pool.perRiderMaxOrders || 2;
+    const orderBatches = distributeOrders(stationNode, selectedOrders, maxRiders);
+
+    console.log(`✅ 调度完成（初步分组），准备应用容量约束：x${maxRiders} 骑手，每骑手最多 ${perRiderMax} 单`);
 
     const allRoutePoints: any[] = [];
+    const overflow: ServerOrder[] = [];
 
     // 遍历每个批次（每位骑手）
     orderBatches.forEach((batchOrders, riderIdx) => {
+        if (riderIdx >= maxRiders) {
+            overflow.push(...batchOrders);
+            return;
+        }
         console.log(`🛵 骑手 ${riderIdx + 1} 配送顺序:`);
         batchOrders.forEach((o, index) => {
             console.log(`   ${index + 1}. ${o.customer.address} (订单号: ${o.id})`);
         });
 
-        // 构建该骑手的路径可视化数据
+        // 应用每骑手最大订单数
+        const immediate = batchOrders.slice(0, perRiderMax);
+        const queued = batchOrders.slice(perRiderMax);
+        if (queued.length > 0) overflow.push(...queued);
+
+        // 构建该骑手的路径可视化数据（只针对立即派送的）
         const batchPoints = [
             { lat: stationNode.location.lat, lng: stationNode.location.lng, type: 'station', name: stationNode.name, riderIndex: riderIdx },
-            ...batchOrders.map((o, idx) => ({
+            ...immediate.map((o, idx) => ({
                 lat: o.logistics.endLat,
                 lng: o.logistics.endLng,
                 type: (o as any).priorityScore >= 80 || (o as any).isUrged || o.serviceLevel === 'EXPRESS' ? 'urgent' : 'normal',
@@ -105,8 +103,10 @@ export const dispatchBatchOrders = (req: Request, res: Response) => {
         ];
         allRoutePoints.push(batchPoints);
 
-        // 异步启动该骑手的模拟任务
-        startBatchSimulation(io, batchOrders, stationNode, riderIdx);
+        // 异步启动该骑手的模拟任务（立即配送部分）
+        if (immediate.length > 0) {
+            startBatchSimulation(io, immediate, stationNode, riderIdx);
+        }
     });
 
     // --- 推送可视化路径给前端 ---
@@ -117,12 +117,66 @@ export const dispatchBatchOrders = (req: Request, res: Response) => {
     // Payload: { routes: [ [Points...], [Points...] ] }
     io.emit('multi_route_planned', { routes: allRoutePoints });
 
+    // 溢出订单进入全局队列，等待任一骑手空闲后派送
+    if (overflow.length > 0) {
+        console.log(`📥 超出容量的订单进入队列：${overflow.length} 单`);
+        overflow.forEach(o => {
+            (o as any).queued = true;
+            (o as any).queuedRiderIndex = undefined;
+            (o as any).queuedSeq = undefined;
+            o.timeline.push({ status: 'queued', description: `因运力排队，等待可用骑手`, timestamp: new Date().toISOString() });
+            try { io.emit('order_update', o); } catch {}
+        });
+        enqueueGlobal(overflow);
+
+        // 同步前端：绘制排队虚线路线（基于分组差集）
+        const queuedRoutePoints: any[] = [];
+        for (let i = 0; i < maxRiders; i++) {
+            // @ts-ignore 获取内部队列（仅用于可视化）
+            const riderQueue = (global as any) && (global as any).noop ? [] : undefined; // 占位避免 TS 报错
+        }
+        // 基于入队逻辑，简单重建各骑手的排队路线（仍以当前 station 为起点）
+        for (let i = 0; i < maxRiders; i++) {
+            // 访问 util 内部 map（简化：通过 enqueue 已经入队，直接从本地 overflow 构造不可得），改为按轮询逻辑推断：此处用一个收集器
+        }
+        // 更稳妥：直接按刚入队的数据 next 的分配顺序构建一次性可视化
+        // 为简单起见，复用 allRoutePoints 但 type 改为 queued，仅用于提示
+        // 注意：这不是严格 riderIdx 的映射，但足够展示“虚线排队路线”
+        const queuedGroups: Record<number, any[]> = {};
+        // 重新分配 overflow 入队时的顺序：我们已经按 targetRider 轮询
+        // 所以上述循环内每个 next 的 targetRider 即其 riderIdx；这里无法回溯 targetRider，简化改法：再次按 distributeOrders 结果做 queued 集合
+        orderBatches.forEach((batchOrders, riderIdx) => {
+            const immediateIds = new Set(batchOrders.slice(0, perRiderMax).map(o => o.id));
+            const queuedList = batchOrders.filter(o => !immediateIds.has(o.id));
+            if (riderIdx < maxRiders && queuedList.length > 0) {
+                const batchPoints = [
+                    { lat: stationNode.location.lat, lng: stationNode.location.lng, type: 'station', name: stationNode.name, riderIndex: riderIdx },
+                    ...queuedList.map((o, idx) => ({
+                        lat: o.logistics.endLat,
+                        lng: o.logistics.endLng,
+                        type: 'queued',
+                        name: o.customer.address,
+                        orderId: o.id,
+                        sequence: idx + 1,
+                        riderIndex: riderIdx
+                    })),
+                    { lat: stationNode.location.lat, lng: stationNode.location.lng, type: 'station', name: stationNode.name, riderIndex: riderIdx }
+                ];
+                queuedGroups[riderIdx] = batchPoints;
+            }
+        });
+        const queuedRoutes = Object.values(queuedGroups);
+        if (queuedRoutes.length > 0) io.emit('queued_routes_planned', { routes: queuedRoutes });
+    }
+
     res.json(success({ 
-        dispatchedCount: selectedOrders.length,
-        riderCount: orderBatches.length,
+        dispatchedCount: Math.min(selectedOrders.length, maxRiders * perRiderMax),
+        queuedCount: Math.max(0, selectedOrders.length - (maxRiders * perRiderMax)),
+        riderCount: Math.min(orderBatches.length, maxRiders),
         notFoundIds,
-        routeSequence: orderBatches.map(batch => batch.map(o => o.id)) 
-    }, `成功调度 ${selectedOrders.length} 个订单，分配给 ${orderBatches.length} 位骑手`));
+        routeSequence: allRoutePoints,
+        capacity: { maxRiders, perRiderMax }
+    }, `成功调度 ${selectedOrders.length} 个订单；立即派送 ${Math.min(selectedOrders.length, maxRiders * perRiderMax)} 单，排队 ${Math.max(0, selectedOrders.length - (maxRiders * perRiderMax))} 单`));
 };
 
 const sortOrderTimeline = (order: ServerOrder) => {
@@ -511,5 +565,17 @@ export const getRiders = (req: Request, res: Response) => {
         res.json(success(pool));
     } catch (e) {
         res.status(500).json(error('获取骑手池失败'));
+    }
+};
+
+// --- 11. [新增] 更新骑手池配置 ---
+export const postRiderConfig = (req: Request, res: Response) => {
+    try {
+        const io = req.app.get('socketio');
+        const { maxRiders, perRiderMaxOrders } = req.body as { maxRiders?: number; perRiderMaxOrders?: number };
+        const pool = updateRiderConfig(io, { maxRiders, perRiderMaxOrders });
+        res.json(success(pool, '配置已更新'));
+    } catch (e) {
+        res.status(500).json(error('更新配置失败'));
     }
 };

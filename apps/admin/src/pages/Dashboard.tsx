@@ -1,8 +1,8 @@
 import React, { useEffect, useState, useRef, useMemo } from 'react';
-import { Card, Row, Col, Statistic, List, Tag, Badge, Typography } from 'antd';
+import { Card, Row, Col, Statistic, List, Tag, Badge, Typography, InputNumber, Button, Space, Modal, message } from 'antd';
 import ReactECharts from 'echarts-for-react';
 import { Order, OrderStatus, PositionUpdatePayload } from '@el/types';
-import { fetchOrders, fetchRiders } from '../services/orderService';
+import { fetchOrders, fetchRiders, updateRiderConfig } from '../services/orderService';
 import { 
     ClockCircleOutlined, 
     UserOutlined, 
@@ -22,6 +22,9 @@ const Dashboard: React.FC = () => {
     const [riderPool, setRiderPool] = useState<{ maxRiders: number; perRiderMaxOrders: number; riders: { id: number; status: 'idle'|'busy'|'returning'|'offline'; activeOrderIds: string[] }[] }>({ maxRiders: 5, perRiderMaxOrders: 2, riders: [] });
     type ExtraEvent = { type: 'success' | 'info' | 'warning', text: string, id: string };
     const [extraEvents, setExtraEvents] = useState<ExtraEvent[]>([]);
+    const [cfgMaxRiders, setCfgMaxRiders] = useState<number>(5);
+    const [cfgPerRiderMax, setCfgPerRiderMax] = useState<number>(2);
+    const [cfgVisible, setCfgVisible] = useState<boolean>(false);
     const returningSetRef = useRef<Set<number>>(new Set());
     
     // 持久化：加载/保存事件到 localStorage，保证切换页面后仍能看到返程/回站动态
@@ -151,6 +154,12 @@ const Dashboard: React.FC = () => {
                 setOrders(prev => prev.map(o => o.id === payload.orderId ? { ...o, status: OrderStatus.COMPLETED } : o));
             }
             loadData();
+        });
+
+        socketRef.current.on('rider_debug', (payload: any) => {
+            try {
+                console.log('RIDER_DEBUG:', payload);
+            } catch {}
         });
 
         return () => {
@@ -301,6 +310,9 @@ const Dashboard: React.FC = () => {
                 <Col span={5}>
                     <Card bordered={false} hoverable>
                         <Statistic title="在线骑手" value={riderPool.riders.filter(r => r.status !== 'offline').length || 0} prefix={<UserOutlined />} suffix={`(空闲 ${idleRiders})`} />
+                        <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 8 }}>
+                            <Button size="small" onClick={() => { setCfgMaxRiders(riderPool.maxRiders || 5); setCfgPerRiderMax(riderPool.perRiderMaxOrders || 2); setCfgVisible(true); }}>配置</Button>
+                        </div>
                     </Card>
                 </Col>
                 <Col span={5}>
@@ -350,6 +362,35 @@ const Dashboard: React.FC = () => {
             </Row>
 
             
+            <Modal
+                title="配置骑手与容量"
+                open={cfgVisible}
+                onCancel={() => setCfgVisible(false)}
+                onOk={async () => {
+                    try {
+                        const res = await updateRiderConfig({ maxRiders: cfgMaxRiders, perRiderMaxOrders: cfgPerRiderMax });
+                        if (res && (res as any).data) {
+                            setRiderPool((res as any).data);
+                            message.success('配置已更新');
+                        }
+                    } catch {
+                        message.error('配置更新失败');
+                    } finally {
+                        setCfgVisible(false);
+                    }
+                }}
+            >
+                <Space direction="vertical" style={{ width: '100%' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                        <span>站点骑手人数</span>
+                        <InputNumber min={1} max={50} value={cfgMaxRiders} onChange={(v) => setCfgMaxRiders(Number(v || 1))} />
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                        <span>每骑手最多携单</span>
+                        <InputNumber min={1} max={10} value={cfgPerRiderMax} onChange={(v) => setCfgPerRiderMax(Number(v || 1))} />
+                    </div>
+                </Space>
+            </Modal>
         </div>
     );
 };

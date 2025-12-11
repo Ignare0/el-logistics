@@ -27,8 +27,8 @@ export const queryEvents = (limit: number = 50) => eventLog.slice(0, Math.max(0,
 type RiderStatus = 'idle' | 'busy' | 'returning' | 'offline';
 type Rider = { id: number; status: RiderStatus; activeOrderIds: string[] };
 
-const STATION_MAX_RIDERS = Number(process.env.STATION_MAX_RIDERS || 5);
-const RIDER_MAX_ORDERS = Number(process.env.RIDER_MAX_ORDERS || 2);
+let STATION_MAX_RIDERS = Number(process.env.STATION_MAX_RIDERS || 5);
+let RIDER_MAX_ORDERS = Number(process.env.RIDER_MAX_ORDERS || 2);
 
 const riders: Rider[] = Array.from({ length: STATION_MAX_RIDERS }, (_, i) => ({ id: i, status: 'idle', activeOrderIds: [] }));
 
@@ -43,6 +43,17 @@ export const getRiderPool = () => ({ maxRiders: STATION_MAX_RIDERS, perRiderMaxO
 const emitRiderStatus = (io: Server) => {
     try { io.emit('rider_status', getRiderPool()); } catch {}
 };
+
+// Rider Queues & Station mapping
+// 全局等待队列（不预分配具体骑手，避免空闲骑手空等）
+const globalQueue: ServerOrder[] = [];
+const stationNodeForRider: Map<number, LogisticsNode> = new Map();
+
+export const setRiderStation = (idx: number, node: LogisticsNode) => { stationNodeForRider.set(idx, node); };
+export const enqueueGlobal = (items: ServerOrder[]) => { globalQueue.push(...items); };
+export const dequeueGlobal = (count: number): ServerOrder[] => globalQueue.splice(0, Math.max(0, count));
+
+const emitDebug = (io: Server, payload: any) => { try { io.emit('rider_debug', payload); } catch {} };
 
 /**
  * 停止模拟
@@ -373,14 +384,45 @@ export const startBatchSimulation = async (io: Server, orders: ServerOrder[], st
     console.log(`🚀 开启批量配送模拟，共 ${orders.length} 单`);
 
     // 标记所有订单为运输中（批量场景不依赖 activeTimers，中途取消直接跳出）
-    orders.forEach(o => activeTimers.set(o.id, true));
+    orders.forEach(o => {
+        activeTimers.set(o.id, true);
+        if (o.status !== OrderStatus.SHIPPING) {
+            o.status = OrderStatus.SHIPPING;
+            o.timeline.push({ status: 'shipping', description: '调度中心已指派骑手，正在配送中', timestamp: new Date().toISOString() });
+            try { io.emit('order_update', o); } catch {}
+        }
+        (o as any).queued = false;
+        (o as any).queuedRiderIndex = undefined;
+        (o as any).queuedSeq = undefined;
+    });
 
     try {
         if (typeof riderIndex === 'number') {
             setRiderBusy(riderIndex, orders.map(o => o.id));
             emitRiderStatus(io);
+            console.log(`🟢 骑手 ${riderIndex + 1} 接到订单: ${orders.map(o => o.id).join(', ')}`);
+            emitDebug(io, { riderIndex, state: 'busy', orders: orders.map(o => o.id) });
         }
+        // 在开始移动前，广播该骑手的新派送路线（彩线）供前端绘制
+        try {
+            const batchPoints = [
+                { lat: stationNode.location.lat, lng: stationNode.location.lng, type: 'station', name: stationNode.name, riderIndex },
+                ...orders.map((o, idx) => ({
+                    lat: o.logistics.endLat,
+                    lng: o.logistics.endLng,
+                    type: (o as any).priorityScore >= 80 || (o as any).isUrged || o.serviceLevel === 'EXPRESS' ? 'urgent' : 'normal',
+                    name: o.customer.address,
+                    orderId: o.id,
+                    sequence: idx + 1,
+                    riderIndex
+                })),
+                { lat: stationNode.location.lat, lng: stationNode.location.lng, type: 'station', name: stationNode.name, riderIndex }
+            ];
+            io.emit('rider_route_planned', { riderIndex, route: batchPoints });
+        } catch {}
+
         let currentNode = stationNode;
+        if (typeof riderIndex === 'number') setRiderStation(riderIndex, stationNode);
 
         // 遍历每个订单作为目的地
         for (const order of orders) {
@@ -400,6 +442,7 @@ export const startBatchSimulation = async (io: Server, orders: ServerOrder[], st
             };
 
             console.log(`>>> 骑手前往: ${targetNode.name}`);
+            if (typeof riderIndex === 'number') emitDebug(io, { riderIndex, state: 'heading', targetOrderId: order.id });
 
             // 获取骑行路径
             // 注意：如果 currentNode 是临时位置（即上单半路取消），这里会规划从半路到新目的地的路径
@@ -491,6 +534,7 @@ export const startBatchSimulation = async (io: Server, orders: ServerOrder[], st
             // ==========================================
             if (orders.length > 0) {
                 console.log(`🏠 所有订单派送完毕，骑手返回站点: ${stationNode.name}`);
+                if (typeof riderIndex === 'number') emitDebug(io, { riderIndex, state: 'returning' });
                 
                 const returnRoutePoints = await getRoutePoints('DELIVERY', currentNode, stationNode);
 
@@ -517,7 +561,7 @@ export const startBatchSimulation = async (io: Server, orders: ServerOrder[], st
                     recordEvent({ kind: 'position', status: 'returning', riderIndex, ts: now, text: `骑手 ${Number(riderIndex ?? 0) + 1} 正在返回站点` });
                 }
                     });
-                    if (typeof riderIndex === 'number') { setRiderReturning(riderIndex); emitRiderStatus(io); }
+                if (typeof riderIndex === 'number') { setRiderReturning(riderIndex); emitRiderStatus(io); }
 
                     await wait(100);
                 }
@@ -560,7 +604,18 @@ export const startBatchSimulation = async (io: Server, orders: ServerOrder[], st
                 // 仅广播一次无订单ID的事件，防止重复触发
                 io.emit('position_update', idlePayload);
                 recordEvent({ kind: 'position', status: 'rider_idle', riderIndex, ts: idlePayload.timestamp!, text: `骑手 ${Number(riderIndex ?? 0) + 1} 已回站` });
-                if (typeof riderIndex === 'number') { setRiderIdle(riderIndex); emitRiderStatus(io); }
+                if (typeof riderIndex === 'number') { setRiderIdle(riderIndex); emitRiderStatus(io); console.log(`⚪ 骑手 ${riderIndex + 1} 已空闲`); emitDebug(io, { riderIndex, state: 'idle' }); }
+
+                // 自动触发下一批（队列驱动）
+                if (typeof riderIndex === 'number') {
+                    const nextOrders = dequeueGlobal(RIDER_MAX_ORDERS);
+                    if (nextOrders.length > 0) {
+                        setRiderBusy(riderIndex, nextOrders.map(o => o.id));
+                        emitRiderStatus(io);
+                        const station = stationNodeForRider.get(riderIndex) || stationNode;
+                        startBatchSimulation(io, nextOrders, station, riderIndex);
+                    }
+                }
 
                 console.log(`🏁 骑手已安全返回站点`);
             }
@@ -570,4 +625,19 @@ export const startBatchSimulation = async (io: Server, orders: ServerOrder[], st
         } catch (e) {
         console.error('❌ 批量模拟出错:', e);
     }
+};
+export const updateRiderConfig = (io: Server, cfg: { maxRiders?: number; perRiderMaxOrders?: number }) => {
+    const { maxRiders, perRiderMaxOrders } = cfg;
+    if (typeof maxRiders === 'number' && maxRiders > 0) {
+        STATION_MAX_RIDERS = maxRiders;
+        if (riders.length < STATION_MAX_RIDERS) {
+            const start = riders.length;
+            for (let i = start; i < STATION_MAX_RIDERS; i++) riders.push({ id: i, status: 'idle', activeOrderIds: [] });
+        } else if (riders.length > STATION_MAX_RIDERS) {
+            riders.length = STATION_MAX_RIDERS;
+        }
+    }
+    if (typeof perRiderMaxOrders === 'number' && perRiderMaxOrders > 0) RIDER_MAX_ORDERS = perRiderMaxOrders;
+    emitRiderStatus(io);
+    return getRiderPool();
 };

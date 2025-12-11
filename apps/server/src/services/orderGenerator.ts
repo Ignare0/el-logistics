@@ -163,7 +163,7 @@ export const startOrderGenerator = (io: Server) => {
             console.log(`+ 新增订单 ${newOrder.id} -> ${newOrder.customer.address} (当前总数: ${generatedCount})`);
         }
 
-    }, 10000); // 每 10 秒
+    }, 500); // 每 0.5 秒
 };
 
 export const stopOrderGenerator = () => {
