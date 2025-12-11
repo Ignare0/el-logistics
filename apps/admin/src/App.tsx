@@ -6,7 +6,7 @@ import {
     EnvironmentOutlined,
     ShopOutlined
 } from '@ant-design/icons';
-import { BrowserRouter, Routes, Route, useNavigate, useLocation, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, useNavigate, useLocation } from 'react-router-dom';
 import OrderList from './pages/OrderList';
 import Dashboard from './pages/Dashboard';
 import DeliveryMap from './pages/DeliveryMap';
@@ -109,7 +109,18 @@ const MainLayout: React.FC = () => {
                             <Route path="/" element={<Dashboard />} />
                             <Route path="/orders" element={<OrderList />} />
                             <Route path="/map" element={<DeliveryMap />} />
-                            <Route path="*" element={<Navigate to="/" replace />} />
+                            <Route
+                                path="*"
+                                element={
+                                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16 }}>
+                                        <h3>订单不存在或页面未找到</h3>
+                                        <button
+                                            onClick={() => navigate('/')}
+                                            style={{ padding: '8px 16px', borderRadius: 6, border: '1px solid #ccc', background: '#fff', cursor: 'pointer' }}
+                                        >返回主页</button>
+                                    </div>
+                                }
+                            />
                         </Routes>
                     </div>
                 </Content>

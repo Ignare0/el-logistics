@@ -102,12 +102,17 @@ const Dashboard: React.FC = () => {
     // 2. Core Metrics
     const pendingOrders = orders.filter(o => o.status === OrderStatus.PENDING).length;
     // Calculate max wait time (minutes) for pending orders
+    const [tick, setTick] = useState(0);
+    useEffect(() => {
+        const id = setInterval(() => setTick(t => t + 1), 60000); // 每分钟触发一次重算
+        return () => clearInterval(id);
+    }, []);
     const maxWaitTime = useMemo(() => {
         const pending = orders.filter(o => o.status === OrderStatus.PENDING);
         if (pending.length === 0) return 0;
         const oldest = pending.reduce((prev, curr) => (prev.createdAt < curr.createdAt ? prev : curr));
         return Math.floor((Date.now() - new Date(oldest.createdAt).getTime()) / 60000);
-    }, [orders]);
+    }, [orders, tick]);
 
     // 3. Capacity Load
     const activeLoadCount = busyRidersCount + returningRidersCount;

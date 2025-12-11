@@ -104,11 +104,39 @@ export default function TrackingView({ initialOrder, id }: Props) {
     // ✅ 处理 SWR 加载和错误状态
     // 仅在手机号已加载且明确 404 时返回首页
     if (phoneLoaded && phone && (error || (!swrOrder && !initialOrder))) {
-        return <div className="p-10 text-center">订单不存在</div>;
+        return (
+            <div className="min-h-screen flex items-center justify-center bg-gray-50">
+                <div className="max-w-md w-full mx-auto p-8 bg-white rounded-2xl shadow-sm text-center">
+                    <div className="mx-auto w-16 h-16 rounded-full bg-gray-100 flex items-center justify-center mb-4">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" className="w-8 h-8 text-gray-400"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9.879 7.519a3 3 0 0 1 4.242 0l2.12 2.121a3 3 0 0 1 0 4.242l-2.12 2.121a3 3 0 0 1-4.242 0l-2.121-2.121a3 3 0 0 1 0-4.242l2.121-2.121z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7.757 7.757 6 6m12 12-1.757-1.757" /></svg>
+                    </div>
+                    <h2 className="text-xl font-semibold mb-2">订单不存在</h2>
+                    <p className="text-gray-500 mb-6">该订单不存在，或不属于当前手机号。</p>
+                    <button
+                        onClick={() => router.push('/')}
+                        className="w-full bg-black text-white font-bold py-3 rounded-xl text-lg active:scale-95 transition-transform"
+                    >返回首页</button>
+                </div>
+            </div>
+        );
     }
     // 未设置手机号时，提示用户而不自动跳转，避免误返回首页
     if (phoneLoaded && !phone) {
-        return <div className="p-10 text-center">请先在首页输入手机号以查看订单</div>;
+        return (
+            <div className="min-h-screen flex items-center justify-center bg-gray-50">
+                <div className="max-w-md w-full mx-auto p-8 bg-white rounded-2xl shadow-sm text-center">
+                    <div className="mx-auto w-16 h-16 rounded-full bg-yellow-100 flex items-center justify-center mb-4">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" className="w-8 h-8 text-yellow-500"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01M4.93 4.93a10 10 0 1 1 14.14 14.14A10 10 0 0 1 4.93 4.93z" /></svg>
+                    </div>
+                    <h2 className="text-xl font-semibold mb-2">需要手机号</h2>
+                    <p className="text-gray-500 mb-6">请在首页输入您的手机号以查看订单。</p>
+                    <button
+                        onClick={() => router.push('/')}
+                        className="w-full bg-black text-white font-bold py-3 rounded-xl text-lg active:scale-95 transition-transform"
+                    >返回首页</button>
+                </div>
+            </div>
+        );
     }
     // 如果 store 中还没有数据（初始化期间），可以显示一个加载状态
     if (!order) return <div className="p-10 text-center text-gray-500">正在准备物流信息...</div>;
