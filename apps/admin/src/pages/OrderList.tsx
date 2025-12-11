@@ -7,7 +7,8 @@ import { fetchOrders, shipOrder } from '../services/orderService';
 import { Order, OrderStatus, OrderStatusMap } from '@el/types';
 import CreateOrderModal from './CreateOrderModal';
 import { useMerchant } from '../contexts/MerchantContext';
-import { RocketOutlined, CarOutlined, MedicineBoxOutlined, CoffeeOutlined, ShopOutlined, FireOutlined } from '@ant-design/icons';
+import { RocketOutlined, CarOutlined, MedicineBoxOutlined, CoffeeOutlined, ShopOutlined, FireOutlined, SearchOutlined } from '@ant-design/icons';
+import { Input } from 'antd';
 import AMapLoader from '@amap/amap-jsapi-loader';
 import { io, Socket } from 'socket.io-client';
 import { fetchRiders } from '../services/orderService';
@@ -209,6 +210,30 @@ const OrderList: React.FC = () => {
             dataIndex: 'id',
             key: 'id',
             width: 150,
+            filteredValue: (savedFilters?.id as React.Key[] | null) || null,
+            filterDropdown: ({ setSelectedKeys, selectedKeys, confirm, clearFilters }) => (
+                <div style={{ padding: 8 }}>
+                    <Input
+                        placeholder="请输入订单号"
+                        value={(selectedKeys as React.Key[])[0] as string}
+                        onChange={e => setSelectedKeys(e.target.value ? [e.target.value] : [])}
+                        onPressEnter={() => confirm()}
+                        style={{ marginBottom: 8, display: 'block' }}
+                        allowClear
+                    />
+                    <Space>
+                        <Button type="primary" size="small" onClick={() => confirm()}>搜索</Button>
+                        <Button size="small" onClick={() => { clearFilters && clearFilters(); confirm(); }}>重置</Button>
+                    </Space>
+                </div>
+            ),
+            filterIcon: (filtered) => (
+                <SearchOutlined style={{ color: filtered ? '#1677ff' : undefined }} />
+            ),
+            onFilter: (value, record) => {
+                const q = String(value || '').trim().toLowerCase();
+                return q ? String(record.id || '').toLowerCase().includes(q) : true;
+            },
         },
         {
             title: '服务',
@@ -275,6 +300,34 @@ const OrderList: React.FC = () => {
             title: '客户信息',
             key: 'customer',
             width: 200,
+            filteredValue: (savedFilters?.customer as React.Key[] | null) || null,
+            filterDropdown: ({ setSelectedKeys, selectedKeys, confirm, clearFilters }) => (
+                <div style={{ padding: 8 }}>
+                    <Input
+                        placeholder="姓名/电话/地址"
+                        value={(selectedKeys as React.Key[])[0] as string}
+                        onChange={e => setSelectedKeys(e.target.value ? [e.target.value] : [])}
+                        onPressEnter={() => confirm()}
+                        style={{ marginBottom: 8, display: 'block' }}
+                        allowClear
+                    />
+                    <Space>
+                        <Button type="primary" size="small" onClick={() => confirm()}>搜索</Button>
+                        <Button size="small" onClick={() => { clearFilters && clearFilters(); confirm(); }}>重置</Button>
+                    </Space>
+                </div>
+            ),
+            filterIcon: (filtered) => (
+                <SearchOutlined style={{ color: filtered ? '#1677ff' : undefined }} />
+            ),
+            onFilter: (value, record) => {
+                const q = String(value || '').trim().toLowerCase();
+                if (!q) return true;
+                const name = String(record.customer?.name || '').toLowerCase();
+                const phone = String(record.customer?.phone || '').toLowerCase();
+                const address = String(record.customer?.address || '').toLowerCase();
+                return name.includes(q) || phone.includes(q) || address.includes(q);
+            },
             render: (_, record) => (
                 <div>
                     <div>{record.customer.name}</div>

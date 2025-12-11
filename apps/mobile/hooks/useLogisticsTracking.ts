@@ -17,6 +17,7 @@ export const useLogisticsTracking = ({ map, AMap, orderId, startPoint, initialPa
     const passedPolylineRef = useRef<AMap.Polyline | null>(null);
     const pathRef = useRef<Array<[number, number]>>(initialPath || [startPoint]);
     const shouldTrackRouteRef = useRef(true); // ✅ 控制是否继续绘制轨迹
+    const terminalPendingRef = useRef(false);
 
     // ✅ 直接从 store 获取更新函数
     const { updateFromSocket } = useOrderActions();
@@ -88,6 +89,10 @@ export const useLogisticsTracking = ({ map, AMap, orderId, startPoint, initialPa
                 }
                 // 将临时累积的路径收敛为固定路径，避免重复
                 passedPolylineRef.current.setPath(pathRef.current);
+                if (terminalPendingRef.current) {
+                    shouldTrackRouteRef.current = false;
+                    terminalPendingRef.current = false;
+                }
             });
 
             map.on('dragstart', () => toggleFollow(false));
@@ -113,7 +118,7 @@ export const useLogisticsTracking = ({ map, AMap, orderId, startPoint, initialPa
                 }
 
                 if (isTerminal) {
-                    shouldTrackRouteRef.current = false;
+                    terminalPendingRef.current = true;
                 }
 
                 if (carMarkerRef.current) {
