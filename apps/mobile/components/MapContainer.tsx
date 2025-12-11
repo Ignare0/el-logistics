@@ -20,6 +20,7 @@ function MapContainer({startPoint, endPoint, orderId, order }: Props) {
         center: startPoint,
         zoom: 4
     });
+    const basePolylineRef = useRef<AMap.Polyline | null>(null);
 
     useEffect(() => {
         if (!map || !AMap) return;
@@ -44,6 +45,17 @@ function MapContainer({startPoint, endPoint, orderId, order }: Props) {
         const startMarker = createTextMarker(startPoint, `商家`, 'start');
         const endMarker = createTextMarker(endPoint, `顾客`, 'end');
 
+        const base = order.logistics.plannedRoutePoints;
+        if (base && base.length > 1) {
+            basePolylineRef.current = new AMap.Polyline({
+                path: base,
+                strokeColor: '#9e9e9e',
+                strokeWeight: 4,
+                strokeStyle: 'dashed'
+            });
+            map.add(basePolylineRef.current);
+        }
+
         // ✅ 自动缩放地图以适应起点和终点，避免一开始显示全中国
         map.setFitView([startMarker, endMarker], false, [100, 50, 100, 50]); // 上右下左 padding
 
@@ -53,6 +65,10 @@ function MapContainer({startPoint, endPoint, orderId, order }: Props) {
             try {
                 if (startMarker) map.remove(startMarker);
                 if (endMarker) map.remove(endMarker);
+                if (basePolylineRef.current) {
+                    map.remove(basePolylineRef.current);
+                    basePolylineRef.current = null;
+                }
             } catch (e) {
                 // ignore
             }

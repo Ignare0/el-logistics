@@ -91,6 +91,7 @@ export interface Order {
         currentLat?: number;
         currentLng?: number;
         plannedRoute?: LogisticsNode[];
+        plannedRoutePoints?: [number, number][];
         actualRoute?: [number, number][]; // 实际行驶路径坐标点集合
     };
 }

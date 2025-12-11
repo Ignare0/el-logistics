@@ -8,6 +8,7 @@ import { optimizeBatchRoute, distributeOrders } from '../utils/routeOptimizer';
 import { NODES } from '../mock/nodes';
 import { orders } from '../mock/orders';
 import { LogisticsNode } from '../domain/Node';
+import { fetchRidingRoute } from '../utils/amapService';
 
 // ... (existing code)
 
@@ -265,7 +266,17 @@ export const shipOrder = (req: Request, res: Response) => {
         ];
     }
 
-    // 2. 更新状态
+    // 2. 计算末端规划路径点
+    try {
+        const routeNodes = order.logistics.plannedRoute || [];
+        const start = routeNodes.length >= 2 ? routeNodes[routeNodes.length - 2].location : { lat: order.logistics.startLat, lng: order.logistics.startLng };
+        const end = routeNodes.length >= 1 ? routeNodes[routeNodes.length - 1].location : { lat: order.logistics.endLat, lng: order.logistics.endLng };
+        fetchRidingRoute(start.lat, start.lng, end.lat, end.lng).then(points => {
+            order.logistics.plannedRoutePoints = points;
+        }).catch(() => {});
+    } catch {}
+
+    // 3. 更新状态
     order.status = OrderStatus.SHIPPING;
     order.timeline.push({
         status: 'shipping',
@@ -273,7 +284,7 @@ export const shipOrder = (req: Request, res: Response) => {
         timestamp: new Date().toISOString() // ✅ 修正为 timestamp
     });
 
-    // 3. 启动 Socket 模拟
+    // 4. 启动 Socket 模拟
     const io = req.app.get('socketio');
     startSimulation(io, order);
 
@@ -311,7 +322,7 @@ export const confirmReceipt = (req: Request, res: Response) => {
 };
 
 // --- 6. [新增] 设置配送方式 ---
-export const setDeliveryMethod = (req: Request, res: Response) => {
+export const setDeliveryMethod = async (req: Request, res: Response) => {
     const { id } = req.params;
     const { method } = req.body; // 'HOME' | 'LOCKER'
 
@@ -357,6 +368,10 @@ export const setDeliveryMethod = (req: Request, res: Response) => {
             // 2. 更新路径：起点 -> 自提柜
             const startNode = order.logistics.plannedRoute[0];
             order.logistics.plannedRoute = [startNode, nearestLocker];
+            try {
+                const points = await fetchRidingRoute(startNode.location.lat, startNode.location.lng, nearestLocker.location.lat, nearestLocker.location.lng);
+                order.logistics.plannedRoutePoints = points;
+            } catch {}
             
             // 3. 继续模拟 (从起点出发前往自提柜)
             if (io) {
@@ -393,6 +408,12 @@ export const setDeliveryMethod = (req: Request, res: Response) => {
             const route = order.logistics.plannedRoute!;
             // 确保索引不越界
             const resumeIndex = Math.max(0, route.length - 2);
+            try {
+                const startLoc = route[resumeIndex].location;
+                const endLoc = route[resumeIndex + 1].location;
+                const points = await fetchRidingRoute(startLoc.lat, startLoc.lng, endLoc.lat, endLoc.lng);
+                order.logistics.plannedRoutePoints = points;
+            } catch {}
             startSimulation(io, order, resumeIndex);
         }
     }
