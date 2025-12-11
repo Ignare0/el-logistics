@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { Table, Tag, Button, Card, message, Space, Popover, Typography, Modal } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
+import type { TablePaginationConfig } from 'antd/es/table';
+import type { SorterResult, FilterValue } from 'antd/es/table/interface';
 import { fetchOrders, shipOrder } from '../services/orderService';
 import { Order, OrderStatus, OrderStatusMap } from '@el/types';
 import CreateOrderModal from './CreateOrderModal';
@@ -16,6 +18,11 @@ const OrderList: React.FC = () => {
     const [actionLoading, setActionLoading] = useState<string | null>(null);
     const [isModalVisible, setIsModalVisible] = useState(false);
     const { currentMerchant } = useMerchant();
+
+    const STORAGE_KEY = 'order_table_state';
+    const [savedFilters, setSavedFilters] = useState<Record<string, FilterValue | null>>({});
+    const [savedSorter, setSavedSorter] = useState<{ field?: string; columnKey?: React.Key; order?: 'ascend' | 'descend' | null }>({});
+    const [savedPagination, setSavedPagination] = useState<{ current?: number; pageSize?: number }>({});
 
     // 电子围栏相关
     const [fencePath, setFencePath] = useState<any[] | null>(null);
@@ -37,6 +44,17 @@ const OrderList: React.FC = () => {
             try {
                 setFencePath(JSON.parse(saved));
             } catch(e) {}
+        }
+
+        // 恢复表格筛选/排序/分页
+        const savedState = localStorage.getItem(STORAGE_KEY);
+        if (savedState) {
+            try {
+                const parsed = JSON.parse(savedState);
+                if (parsed?.filters) setSavedFilters(parsed.filters);
+                if (parsed?.sorter) setSavedSorter(parsed.sorter);
+                if (parsed?.pagination) setSavedPagination(parsed.pagination);
+            } catch (e) {}
         }
     }, []);
 
@@ -122,6 +140,7 @@ const OrderList: React.FC = () => {
             key: 'priorityScore',
             width: 100,
             sorter: (a, b) => (a.priorityScore || 0) - (b.priorityScore || 0),
+            sortOrder: savedSorter.columnKey === 'priorityScore' ? (savedSorter.order || null) : null,
             render: (score: number, record) => {
                 let color = 'green';
                 if (score >= 60) {
@@ -151,6 +170,7 @@ const OrderList: React.FC = () => {
                 { text: '普通', value: 'NORMAL' },
             ],
             onFilter: (value, record) => record.category === value,
+            filteredValue: (savedFilters?.category as React.Key[] | null) || null,
             render: (val: string) => {
                 const config: Record<string, any> = {
                     'FRESH': { color: 'orange', icon: <CoffeeOutlined />, text: '生鲜' },
@@ -246,6 +266,7 @@ const OrderList: React.FC = () => {
             key: 'amount',
             width: 120,
             sorter: (a, b) => a.amount - b.amount,
+            sortOrder: savedSorter.columnKey === 'amount' ? (savedSorter.order || null) : null,
             render: (val) => `¥${val.toFixed(2)}`,
         },
         {
@@ -258,6 +279,7 @@ const OrderList: React.FC = () => {
                 value: status,
             })),
             onFilter: (value, record) => record.status === value,
+            filteredValue: (savedFilters?.status as React.Key[] | null) || null,
             render: (status: OrderStatus) => {
                 const config = OrderStatusMap[status] || { text: status, color: 'default' };
                 return <Tag color={config.color}>{config.text}</Tag>;
@@ -269,6 +291,7 @@ const OrderList: React.FC = () => {
             key: 'createdAt',
             width: 180,
             sorter: (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
+            sortOrder: savedSorter.columnKey === 'createdAt' ? (savedSorter.order || null) : null,
             render: (text) => new Date(text).toLocaleString(),
         },
         {
@@ -324,6 +347,23 @@ const OrderList: React.FC = () => {
         },
     ];
 
+    const handleTableChange = (
+        pagination: TablePaginationConfig,
+        filters: Record<string, FilterValue | null>,
+        sorter: SorterResult<Order> | SorterResult<Order>[]
+    ) => {
+        const s = Array.isArray(sorter) ? sorter[0] : sorter;
+        const nextState = {
+            pagination: { current: pagination.current, pageSize: pagination.pageSize },
+            filters,
+            sorter: { field: s?.field as string, columnKey: s?.columnKey, order: s?.order || null }
+        };
+        try { localStorage.setItem(STORAGE_KEY, JSON.stringify(nextState)); } catch(e) {}
+        setSavedFilters(filters);
+        setSavedPagination(nextState.pagination);
+        setSavedSorter(nextState.sorter);
+    };
+
     return (
         <>
             <Card
@@ -344,8 +384,9 @@ const OrderList: React.FC = () => {
                     columns={columns}
                     rowKey="id"
                     loading={loading}
-                    pagination={{ pageSize: 10 }}
+                    pagination={{ pageSize: savedPagination.pageSize || 10, current: savedPagination.current }}
                     scroll={{ x: 970 }}
+                    onChange={handleTableChange}
                 />
             </Card>
 

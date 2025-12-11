@@ -54,3 +54,8 @@ export const fetchSelectableNodes = async (): Promise<ApiResponse<SelectableNode
 export const cancelOrder = async (orderId: string): Promise<ApiResponse<Order>> => {
     return request.post<ApiResponse<Order>, ApiResponse<Order>>(`/orders/${orderId}/cancel`);
 };
+
+// 查询轻量事件日志
+export const fetchEventLogs = async (limit: number = 50): Promise<ApiResponse<any[]>> => {
+    return request.get<ApiResponse<any[]>, ApiResponse<any[]>>(`/logs/events`, { params: { limit } });
+};

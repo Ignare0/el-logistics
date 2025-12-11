@@ -21,6 +21,22 @@ const Dashboard: React.FC = () => {
     const { currentMerchant } = useMerchant();
     type ExtraEvent = { type: 'success' | 'info' | 'warning', text: string, id: string };
     const [extraEvents, setExtraEvents] = useState<ExtraEvent[]>([]);
+    const returningSetRef = useRef<Set<number>>(new Set());
+    
+    // 持久化：加载/保存事件到 localStorage，保证切换页面后仍能看到返程/回站动态
+    const STORAGE_KEY = 'dashboard_events';
+    useEffect(() => {
+        try {
+            const raw = localStorage.getItem(STORAGE_KEY);
+            if (raw) {
+                const parsed: ExtraEvent[] = JSON.parse(raw);
+                setExtraEvents(parsed.slice(0, 50));
+            }
+        } catch {}
+    }, []);
+    const persistEvents = (events: ExtraEvent[]) => {
+        try { localStorage.setItem(STORAGE_KEY, JSON.stringify(events.slice(0, 50))); } catch {}
+    };
     
     const loadData = async () => {
         if (!currentMerchant) return;
@@ -75,12 +91,52 @@ const Dashboard: React.FC = () => {
 
             if (data.status === 'rider_idle' && typeof (data as any).riderIndex !== 'undefined') {
                 const idx = Number((data as any).riderIndex);
-                const ev: ExtraEvent = { type: 'success', text: `批次完成：骑手 ${idx + 1} 已回站`, id: `rider_idle_${idx}_${Date.now()}` };
-                setExtraEvents((prev: ExtraEvent[]) => [ev, ...prev].slice(0, 50));
+                const text = `批次完成：骑手 ${idx + 1} 已回站`;
+                const ev: ExtraEvent = { type: 'success', text, id: `rider_idle_${idx}_${Date.now()}` };
+                setExtraEvents((prev: ExtraEvent[]) => {
+                    const filtered = prev.filter(p => p.text !== text);
+                    const next = [ev, ...filtered].slice(0, 50);
+                    persistEvents(next);
+                    return next;
+                });
+                // 结束返程，允许后续返程提示再次出现
+                returningSetRef.current.delete(idx);
+
+                // 无订单ID事件：清空所有订单返程标志，避免饼图/负荷残留
+                if (!data.orderId) {
+                    setOrders(prev => prev.map(o => ({ ...o, isReturning: false })));
+                }
+            }
+
+            if (data.status === 'returning' && typeof (data as any).riderIndex !== 'undefined') {
+                const idx = Number((data as any).riderIndex);
+                if (!returningSetRef.current.has(idx)) {
+                    returningSetRef.current.add(idx);
+                    const text = `返程开始：骑手 ${idx + 1} 正在返回站点`;
+                    const ev: ExtraEvent = { type: 'info', text, id: `returning_${idx}_${Date.now()}` };
+                    setExtraEvents((prev: ExtraEvent[]) => {
+                        const filtered = prev.filter(p => p.text !== text);
+                        const next = [ev, ...filtered].slice(0, 50);
+                        persistEvents(next);
+                        return next;
+                    });
+                }
             }
         });
 
-        socketRef.current.on('order_updated', () => {
+        socketRef.current.on('order_updated', (payload: any) => {
+            if (payload && payload.orderId && payload.status === OrderStatus.COMPLETED) {
+                const text = `订单 ${payload.orderId} 已签收`;
+                const ev: ExtraEvent = { type: 'success', text, id: `completed_${payload.orderId}_${Date.now()}` };
+                setExtraEvents((prev: ExtraEvent[]) => {
+                    const filtered = prev.filter(p => p.text !== text);
+                    const next = [ev, ...filtered].slice(0, 50);
+                    persistEvents(next);
+                    return next;
+                });
+                // 本地乐观更新
+                setOrders(prev => prev.map(o => o.id === payload.orderId ? { ...o, status: OrderStatus.COMPLETED } : o));
+            }
             loadData();
         });
 
@@ -131,21 +187,48 @@ const Dashboard: React.FC = () => {
     const totalCount = orders.length || 1;
     const fulfillmentRate = Math.round((completedCount / totalCount) * 100);
 
-    // 5. Abnormal List
-    const abnormalOrders = useMemo(() => {
+    // 5. 订单动态（剔除骑手事件，仅显示订单相关）
+    const orderDynamics = useMemo(() => {
         const list = [];
-        // Add Urged orders
+        // 顾客催单
         orders.filter(o => o.isUrged).forEach(o => list.push({ type: 'urge', text: `顾客 ${o.customer.name} 点击了催单`, id: o.id }));
-        // Add Timeout
+        // 积压提醒
         if (maxWaitTime > 30) list.push({ type: 'timeout', text: `积压严重！最长等待已超 ${maxWaitTime} 分钟`, id: 'alert' });
-        // Add recent delivered
-        orders.filter(o => o.status === OrderStatus.DELIVERED).slice(0, 3).forEach(o => list.push({ type: 'success', text: `订单 ${o.id} 已准时送达`, id: o.id }));
-        return [...extraEvents, ...list];
+
+        // 已送达
+        const deliveredEvents = orders
+            .filter(o => o.status === OrderStatus.DELIVERED)
+            .map(o => {
+                const evt = (o.timeline || []).find(e => e.status === 'delivered');
+                const ts = evt?.timestamp || o.createdAt;
+                return { id: o.id, text: `订单 ${o.id} 已准时送达`, ts };
+            })
+            .sort((a, b) => (new Date(b.ts).getTime() - new Date(a.ts).getTime()))
+            .slice(0, 10)
+            .map(e => ({ type: 'success', text: e.text, id: e.id }));
+
+        // 已签收
+        const completedEvents = orders
+            .filter(o => o.status === OrderStatus.COMPLETED)
+            .map(o => {
+                const evt = (o.timeline || []).find(e => e.status === 'completed');
+                const ts = evt?.timestamp || o.createdAt;
+                return { id: o.id, text: `订单 ${o.id} 已签收`, ts };
+            })
+            .sort((a, b) => (new Date(b.ts).getTime() - new Date(a.ts).getTime()))
+            .slice(0, 10)
+            .map(e => ({ type: 'success', text: e.text, id: `completed_${e.id}` }));
+
+        // 过滤本地持久化事件：仅保留以“订单”开头的文本（剔除“返程开始/批次完成”等骑手事件）
+        const orderExtraEvents = extraEvents.filter(ev => ev.text.startsWith('订单'));
+
+        return [...deliveredEvents, ...completedEvents, ...orderExtraEvents, ...list].slice(0, 6);
     }, [orders, maxWaitTime, extraEvents]);
 
     // --- Chart Options ---
 
     // Gauge: Capacity
+    const gaugeColor = capacityLoad > 80 ? '#cf1322' : (capacityLoad > 50 ? '#faad14' : '#3f8600');
     const gaugeOption = {
         series: [{
             type: 'gauge',
@@ -154,7 +237,7 @@ const Dashboard: React.FC = () => {
             min: 0,
             max: 100,
             splitNumber: 5,
-            itemStyle: { color: capacityLoad > 80 ? '#cf1322' : '#3f8600' },
+            itemStyle: { color: gaugeColor },
             progress: { show: true, width: 10 },
             pointer: { show: false },
             axisLine: { lineStyle: { width: 10 } },
@@ -238,10 +321,10 @@ const Dashboard: React.FC = () => {
                     </Card>
                 </Col>
                 <Col span={12}>
-                    <Card title="🚨 异常与动态监控" bordered={false} className="h-full" bodyStyle={{ padding: '0 12px' }}>
+                    <Card title="📦 订单动态监控" bordered={false} className="h-full" bodyStyle={{ padding: '0 12px' }}>
                         <div className="h-[250px] overflow-y-auto custom-scrollbar">
                             <List
-                                dataSource={abnormalOrders}
+                                dataSource={orderDynamics}
                                 renderItem={item => (
                                     <List.Item>
                                         <List.Item.Meta
@@ -255,7 +338,7 @@ const Dashboard: React.FC = () => {
                                     </List.Item>
                                 )}
                             />
-                            {abnormalOrders.length === 0 && <div className="text-center text-gray-400 py-4">暂无异常</div>}
+                            {orderDynamics.length === 0 && <div className="text-center text-gray-400 py-4">暂无订单动态</div>}
                         </div>
                     </Card>
                 </Col>

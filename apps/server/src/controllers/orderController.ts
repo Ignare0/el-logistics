@@ -2,7 +2,7 @@ import { Request, Response } from 'express';
 import { error, success } from '../utils/response';
 import { OrderStatus, TimelineEvent } from '@el/types';
 import { ServerOrder } from '../types/internal';
-import { startSimulation, startBatchSimulation, stopSimulation } from "../utils/simulator";
+import { startSimulation, startBatchSimulation, stopSimulation, queryEvents } from "../utils/simulator";
 import { planLogisticsRoute } from '../services/logisticsService';
 import { optimizeBatchRoute, distributeOrders } from '../utils/routeOptimizer';
 import { NODES } from '../mock/nodes';
@@ -496,4 +496,10 @@ export const cancelOrder = (req: Request, res: Response) => {
     }
 
     res.json(success(order, '订单已取消'));
+};
+// --- 9. [新增] 查询事件日志（轻量内存版） ---
+export const getEventLogs = (req: Request, res: Response) => {
+    const limit = Number(req.query.limit || 50);
+    const logs = queryEvents(limit);
+    res.json(success(logs));
 };

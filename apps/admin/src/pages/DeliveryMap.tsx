@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Card, Button, message, Alert, Space, Badge, Modal, Tag } from 'antd';
 import AMapLoader from '@amap/amap-jsapi-loader';
 import { Order, OrderStatus } from '@el/types';
-import { fetchOrders, dispatchBatch, cancelOrder } from '../services/orderService';
+import { fetchOrders, dispatchBatch, cancelOrder, fetchEventLogs } from '../services/orderService';
 import { useMerchant } from '../contexts/MerchantContext';
 import { io, Socket } from 'socket.io-client';
 
@@ -113,18 +113,21 @@ const DeliveryMap: React.FC = () => {
             // Rider Marker
             let marker = markerMapRef.current.get(order.id);
             if (!marker) {
-                 const content = `
+                const isReturning = !!order.isReturning;
+                const content = `
                     <div style="
-                        background-color: white;
+                        background-color: ${isReturning ? '#fff7e6' : 'white'};
                         width: 40px; height: 40px;
                         border-radius: 50%;
                         box-shadow: 0 2px 6px rgba(0,0,0,0.3);
                         display: flex; align-items: center; justify-content: center;
-                        font-size: 24px;
-                        border: 2px solid #1890ff;
+                        font-size: 20px;
+                        border: 2px solid ${isReturning ? '#faad14' : '#1890ff'};
                         z-index: 300;
+                        font-weight: bold;
+                        color: ${isReturning ? '#fa8c16' : '#1890ff'};
                     ">
-                        🛵
+                        ${isReturning ? '返' : '🛵'}
                     </div>
                 `;
                 marker = new AMap.Marker({
@@ -139,6 +142,27 @@ const DeliveryMap: React.FC = () => {
                 marker.setPosition(position);
                 // Simple easing could be added here if needed
             }
+            // 无论新建还是更新，都确保返程样式正确
+            try {
+                const isReturning = !!order.isReturning;
+                const content = `
+                    <div style="
+                        background-color: ${isReturning ? '#fff7e6' : 'white'};
+                        width: 40px; height: 40px;
+                        border-radius: 50%;
+                        box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+                        display: flex; align-items: center; justify-content: center;
+                        font-size: 20px;
+                        border: 2px solid ${isReturning ? '#faad14' : '#1890ff'};
+                        z-index: 300;
+                        font-weight: bold;
+                        color: ${isReturning ? '#fa8c16' : '#1890ff'};
+                    ">
+                        ${isReturning ? '返' : '🛵'}
+                    </div>
+                `;
+                marker.setContent(content);
+            } catch {}
         });
 
         // Remove old rider markers
@@ -181,6 +205,45 @@ const DeliveryMap: React.FC = () => {
         
         socketRef.current.on('connect', () => {
             console.log('Map Socket connected');
+            // 补偿：拉取近期事件日志，清理可能残留的覆盖物
+            fetchEventLogs(50).then(res => {
+                if (res.code === 200 && Array.isArray(res.data)) {
+                    const logs = res.data as any[];
+                    let routesFromStorage: any[] | null = null;
+                    try {
+                        const saved = localStorage.getItem('last_multi_routes');
+                        if (saved) routesFromStorage = JSON.parse(saved);
+                    } catch {}
+
+                    const removedIdx = new Set<number>();
+                    logs.forEach((e: any) => {
+                        if (e.kind === 'position' && e.status === 'rider_idle' && typeof e.riderIndex === 'number') {
+                            const overlays = riderOverlayMapRef.current.get(e.riderIndex);
+                            if (overlays && mapRef.current) {
+                                overlays.forEach(ov => mapRef.current.remove(ov));
+                            }
+                            riderOverlayMapRef.current.delete(e.riderIndex);
+                            removedIdx.add(Number(e.riderIndex));
+                            // 清除所有骑手标记（无订单ID场景下按批次清理）
+                            if (mapRef.current) {
+                                markerMapRef.current.forEach((marker) => {
+                                    try { marker.setMap(null); } catch {}
+                                });
+                                markerMapRef.current.clear();
+                            }
+                            // 清空返程标志，触发标记刷新
+                            setOrders(prev => prev.map(o => ({ ...o, isReturning: false })));
+                        }
+                    });
+
+                    // 同步本地存储（一次性处理，避免 splice 造成索引漂移）
+                    if (routesFromStorage) {
+                        removedIdx.forEach(idx => { if (routesFromStorage && routesFromStorage[idx]) routesFromStorage[idx] = null; });
+                        const filtered = routesFromStorage.filter(Boolean);
+                        try { localStorage.setItem('last_multi_routes', JSON.stringify(filtered)); } catch {}
+                    }
+                }
+            }).catch(() => {});
         });
 
         socketRef.current.on('new_order', (newOrder: Order) => {
@@ -204,6 +267,19 @@ const DeliveryMap: React.FC = () => {
         });
 
         // ✅ 监听骑手位置更新
+        const appendDashboardEvent = (type: 'info' | 'success', text: string) => {
+            try {
+                const key = 'dashboard_events';
+                const raw = localStorage.getItem(key);
+                const prev = raw ? JSON.parse(raw) : [];
+                const ev = { type, text, id: `${type}_${Date.now()}` };
+                // 去重：如果已有相同文本的事件，先移除旧的
+                const filtered = prev.filter((e: any) => e.text !== text);
+                const next = [ev, ...filtered].slice(0, 50);
+                localStorage.setItem(key, JSON.stringify(next));
+            } catch {}
+        };
+
         socketRef.current.on('position_update', (data: any) => {
             setOrders(prev => prev.map(o => {
                 if (o.id === data.orderId) {
@@ -231,6 +307,7 @@ const DeliveryMap: React.FC = () => {
 
             // 当某位骑手回站时，清理其对应的路线与序号圆点
             if (data.status === 'rider_idle' && typeof data.riderIndex === 'number') {
+                appendDashboardEvent('success', `批次完成：骑手 ${Number(data.riderIndex) + 1} 已回站`);
                 const overlays = riderOverlayMapRef.current.get(data.riderIndex);
                 if (overlays && mapRef.current) {
                     overlays.forEach(ov => mapRef.current.remove(ov));
@@ -246,6 +323,20 @@ const DeliveryMap: React.FC = () => {
                         localStorage.setItem('last_multi_routes', JSON.stringify(routes));
                     }
                 } catch {}
+
+                // 清除所有骑手标记（批次清理）
+                if (mapRef.current) {
+                    markerMapRef.current.forEach((marker) => {
+                        try { marker.setMap(null); } catch {}
+                    });
+                    markerMapRef.current.clear();
+                }
+                // 清空返程标志，触发标记刷新
+                setOrders(prev => prev.map(o => ({ ...o, isReturning: false })));
+            }
+
+            if (data.status === 'returning' && typeof data.riderIndex === 'number') {
+                appendDashboardEvent('info', `返程开始：骑手 ${Number(data.riderIndex) + 1} 正在返回站点`);
             }
         });
 
@@ -435,6 +526,7 @@ const DeliveryMap: React.FC = () => {
                     routes.forEach((points: any[], riderIdx: number) => {
                         if (!points || points.length < 2) return;
                         const baseColor = riderColors[riderIdx % riderColors.length];
+                        const group: any[] = [];
                         for (let i = 0; i < points.length - 1; i++) {
                             const current = points[i];
                             const next = points[i+1];
@@ -450,6 +542,7 @@ const DeliveryMap: React.FC = () => {
                             });
                             map.add(polyline);
                             batchRouteLayerRef.current.push(polyline);
+                            group.push(polyline);
                         }
                         points.forEach((p: any) => {
                             if (p.type === 'station') return;
@@ -469,7 +562,9 @@ const DeliveryMap: React.FC = () => {
                             const marker = new AMap.Marker({ position: [p.lng, p.lat], content, offset: new AMap.Pixel(-12, -30), zIndex: 210 });
                             map.add(marker);
                             batchRouteLayerRef.current.push(marker);
+                            group.push(marker);
                         });
+                        riderOverlayMapRef.current.set(riderIdx, group);
                     });
                     map.setFitView(batchRouteLayerRef.current, false, [50, 50, 50, 50]);
                 } catch {}

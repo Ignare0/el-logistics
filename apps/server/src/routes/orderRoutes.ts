@@ -8,7 +8,8 @@ import {
     setDeliveryMethod,
     dispatchBatchOrders,
     urgeOrder,
-    cancelOrder
+    cancelOrder,
+    getEventLogs
 } from '../controllers/orderController';
 
 const router = Router();
@@ -16,6 +17,7 @@ const router = Router();
 // 1. 查询类
 router.get('/', getOrders);             // 获取列表
 router.get('/:id', getOrderById);       // 获取详情
+router.get('/logs/events', getEventLogs); // 查询事件日志（轻量内存）
 
 // 2. 操作类
 router.post('/', createOrder);          // 创建订单 (Admin用)

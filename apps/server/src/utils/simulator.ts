@@ -10,6 +10,16 @@ import { LogisticsNode } from '../domain/Node';
 // 存储全局定时器，防止冲突
 const activeTimers = new Map<string, boolean>();
 
+// 轻量内存事件日志（仅记录关键事件）
+type EventLogEntry = { kind: 'position' | 'order'; status?: string; riderIndex?: number; orderId?: string; ts: string; text: string };
+const EVENT_LOG_MAX = 1000;
+const eventLog: EventLogEntry[] = [];
+const recordEvent = (entry: EventLogEntry) => {
+    eventLog.unshift(entry);
+    if (eventLog.length > EVENT_LOG_MAX) eventLog.length = EVENT_LOG_MAX;
+};
+export const queryEvents = (limit: number = 50) => eventLog.slice(0, Math.max(0, Math.min(limit, EVENT_LOG_MAX)));
+
 /**
  * 停止模拟
  */
@@ -250,6 +260,7 @@ export const startSimulation = async (io: Server, order: ServerOrder, startIndex
 
             io.emit('position_update', deliveredPayload);
             updateOrderMemory(order, deliveredPayload); // ✅ 更新状态为 Delivered
+            recordEvent({ kind: 'position', status: 'delivered', orderId: id, ts: new Date().toISOString(), text: `订单 ${id} 已送达` });
 
             // --- 阶段 E: 骑手返回站点 (仅限末端配送) ---
             // 如果是末端配送，且有起始站点（通常倒数第二个节点是站点）
@@ -299,8 +310,8 @@ export const startSimulation = async (io: Server, order: ServerOrder, startIndex
                     order.logistics.currentLat = lat;
                     order.logistics.currentLng = lng;
                     
-                    // 停留一会儿，让用户看到骑手到达站点
-                    await wait(1000);
+                    // 停留短暂时间，让用户看到到站（减少停顿感）
+                    await wait(200);
                 }
 
                 // 返回结束
@@ -431,6 +442,11 @@ export const startBatchSimulation = async (io: Server, orders: ServerOrder[], st
             };
             io.emit('position_update', deliveredPayload);
             updateOrderMemory(order, deliveredPayload);
+            // 轻量事件日志：记录批量送达
+            try {
+                const nowTs = new Date().toISOString();
+                recordEvent({ kind: 'position', status: 'delivered', orderId: order.id, ts: nowTs, text: `订单 ${order.id} 已送达` });
+            } catch {}
             
             console.log(`✅ 订单 ${order.id} 已送达`);
             activeTimers.set(order.id, false);
@@ -469,8 +485,9 @@ export const startBatchSimulation = async (io: Server, orders: ServerOrder[], st
                     orders.forEach(o => {
                          if (o.status !== OrderStatus.COMPLETED && (o.status as any) !== 'cancelled') { // 取消订单不再接收返程广播
                             const p = { ...payload, orderId: o.id };
-                            io.emit('position_update', p);
-                        }
+                    io.emit('position_update', p);
+                    recordEvent({ kind: 'position', status: 'returning', riderIndex, ts: now, text: `骑手 ${Number(riderIndex ?? 0) + 1} 正在返回站点` });
+                }
                     });
 
                     await wait(100);
@@ -496,6 +513,7 @@ export const startBatchSimulation = async (io: Server, orders: ServerOrder[], st
                            io.emit('position_update', p);
                        }
                    });
+                    recordEvent({ kind: 'position', status: 'returning', riderIndex, ts: now, text: `骑手 ${Number(riderIndex ?? 0) + 1} 正在返回站点` });
                    // 停留一会儿，让用户看到骑手到达站点
                    await wait(1000);
                 }
@@ -510,15 +528,9 @@ export const startBatchSimulation = async (io: Server, orders: ServerOrder[], st
                     timestamp: new Date().toISOString(),
                     riderIndex
                 };
-                // 广播一次无订单ID的事件，确保前端能清理覆盖物（即使所有订单已经完成）
+                // 仅广播一次无订单ID的事件，防止重复触发
                 io.emit('position_update', idlePayload);
-                // 同步给相关订单（若仍未完成）
-                orders.forEach(o => {
-                    if (o.status !== OrderStatus.COMPLETED && (o.status as any) !== 'cancelled') {
-                         const p = { ...idlePayload, orderId: o.id };
-                         io.emit('position_update', p);
-                    }
-                });
+                recordEvent({ kind: 'position', status: 'rider_idle', riderIndex, ts: idlePayload.timestamp!, text: `骑手 ${Number(riderIndex ?? 0) + 1} 已回站` });
 
                 console.log(`🏁 骑手已安全返回站点`);
             }
