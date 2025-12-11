@@ -1,6 +1,8 @@
 // server/src/utils/simulator.ts
 
 import { Server } from 'socket.io';
+import * as fs from 'fs';
+import * as path from 'path';
 import { ServerOrder, OrderStatus } from '../types/internal';
 import { PositionUpdatePayload } from '@el/types'; // 共享类型
 import { getTransportMode, getStatusDescription, getSegmentConfig, TransportMode } from './transportMode';
@@ -29,6 +31,21 @@ type Rider = { id: number; status: RiderStatus; activeOrderIds: string[] };
 
 let STATION_MAX_RIDERS = Number(process.env.STATION_MAX_RIDERS || 5);
 let RIDER_MAX_ORDERS = Number(process.env.RIDER_MAX_ORDERS || 2);
+
+// Persistent rider config
+const DATA_DIR = path.join(process.cwd(), 'data');
+const CONFIG_FILE = path.join(DATA_DIR, 'riderConfig.json');
+const loadRiderConfig = () => {
+    try {
+        if (fs.existsSync(CONFIG_FILE)) {
+            const raw = fs.readFileSync(CONFIG_FILE, 'utf-8');
+            const cfg = JSON.parse(raw);
+            if (typeof cfg.maxRiders === 'number') STATION_MAX_RIDERS = cfg.maxRiders;
+            if (typeof cfg.perRiderMaxOrders === 'number') RIDER_MAX_ORDERS = cfg.perRiderMaxOrders;
+        }
+    } catch {}
+};
+loadRiderConfig();
 
 const riders: Rider[] = Array.from({ length: STATION_MAX_RIDERS }, (_, i) => ({ id: i, status: 'idle', activeOrderIds: [] }));
 
@@ -638,6 +655,10 @@ export const updateRiderConfig = (io: Server, cfg: { maxRiders?: number; perRide
         }
     }
     if (typeof perRiderMaxOrders === 'number' && perRiderMaxOrders > 0) RIDER_MAX_ORDERS = perRiderMaxOrders;
+    try {
+        if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+        fs.writeFileSync(CONFIG_FILE, JSON.stringify({ maxRiders: STATION_MAX_RIDERS, perRiderMaxOrders: RIDER_MAX_ORDERS }, null, 2), 'utf-8');
+    } catch {}
     emitRiderStatus(io);
     return getRiderPool();
 };

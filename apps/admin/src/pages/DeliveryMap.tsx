@@ -24,7 +24,6 @@ const DeliveryMap: React.FC = () => {
     
     const batchRouteLayerRef = useRef<any[]>([]); 
     const riderOverlayMapRef = useRef<Map<number, any[]>>(new Map());
-    const queuedOverlayMapRef = useRef<Map<number, any[]>>(new Map());
 
     const stationMarkerRef = useRef<any>(null);
     const socketRef = useRef<Socket | null>(null);
@@ -329,23 +328,7 @@ const DeliveryMap: React.FC = () => {
                     }
                 } catch {}
 
-                const qGroup = queuedOverlayMapRef.current.get(data.riderIndex);
-                if (qGroup && mapRef.current) {
-                    qGroup.forEach(ov => mapRef.current.remove(ov));
-                    batchRouteLayerRef.current = batchRouteLayerRef.current.filter(ov => !qGroup.includes(ov));
-                }
-                queuedOverlayMapRef.current.delete(data.riderIndex);
-                try {
-                    const savedQ = localStorage.getItem('last_queued_routes');
-                    if (savedQ) {
-                        const qRoutes = JSON.parse(savedQ);
-                        if (Array.isArray(qRoutes)) {
-                            if (data.riderIndex in qRoutes) qRoutes[data.riderIndex] = null;
-                            const filteredQ = qRoutes.filter(Boolean);
-                            localStorage.setItem('last_queued_routes', JSON.stringify(filteredQ));
-                        }
-                    }
-                } catch {}
+                
 
                 if (mapRef.current) {
                     markerMapRef.current.forEach((marker) => {
@@ -375,7 +358,6 @@ const DeliveryMap: React.FC = () => {
             batchRouteLayerRef.current.forEach(overlay => map.remove(overlay));
             batchRouteLayerRef.current = [];
             riderOverlayMapRef.current.clear();
-            queuedOverlayMapRef.current.clear();
 
             const routes = data.routes;
             if (!routes || routes.length === 0) return;
@@ -433,23 +415,7 @@ const DeliveryMap: React.FC = () => {
 
                 riderOverlayMapRef.current.set(riderIdx, group);
 
-                // 一旦该骑手开始派送，移除其对应的排队虚线路径
-                const qGroup = queuedOverlayMapRef.current.get(riderIdx);
-                if (qGroup && map) {
-                    qGroup.forEach(ov => map.remove(ov));
-                    queuedOverlayMapRef.current.delete(riderIdx);
-                    try {
-                        const savedQ = localStorage.getItem('last_queued_routes');
-                        if (savedQ) {
-                            const qRoutes = JSON.parse(savedQ);
-                            if (Array.isArray(qRoutes)) {
-                                if (riderIdx in qRoutes) qRoutes[riderIdx] = null;
-                                const filtered = qRoutes.filter(Boolean);
-                                localStorage.setItem('last_queued_routes', JSON.stringify(filtered));
-                            }
-                        }
-                    } catch {}
-                }
+                
             });
 
             map.setFitView(batchRouteLayerRef.current, false, [50, 50, 50, 50]);
@@ -458,55 +424,7 @@ const DeliveryMap: React.FC = () => {
             } catch {}
         });
 
-        // 绘制排队虚线路径（灰色虚线）
-        socketRef.current.on('queued_routes_planned', (data: { routes: any[][] }) => {
-            if (!mapRef.current || !window.AMap) return;
-            const AMap = window.AMap;
-            const map = mapRef.current;
-            const routes = data.routes;
-            if (!routes || routes.length === 0) return;
-            const baseColor = '#9e9e9e';
-            routes.forEach((points, riderIdx) => {
-                if (!points || points.length < 2) return;
-                const group: any[] = [];
-                for (let i = 0; i < points.length - 1; i++) {
-                    const current = points[i];
-                    const next = points[i+1];
-                    const polyline = new AMap.Polyline({
-                        path: [[current.lng, current.lat], [next.lng, next.lat]],
-                        strokeColor: baseColor,
-                        strokeWeight: 4,
-                        strokeStyle: "dashed",
-                        zIndex: 150
-                    });
-                    map.add(polyline);
-                    batchRouteLayerRef.current.push(polyline);
-                    group.push(polyline);
-                }
-                points.forEach((p: any) => {
-                    if (p.type === 'station') return;
-                    const content = `
-                        <div style="
-                            background-color: ${baseColor};
-                            color: white;
-                            width: 22px; height: 22px;
-                            border-radius: 50%;
-                            text-align: center; line-height: 22px;
-                            font-weight: bold;
-                            border: 2px solid white;
-                            box-shadow: 0 2px 6px rgba(0,0,0,0.2);
-                            font-family: Arial;
-                        ">${p.sequence}</div>
-                    `;
-                    const marker = new AMap.Marker({ position: [p.lng, p.lat], content, offset: new AMap.Pixel(-11, -26), zIndex: 160 });
-                    map.add(marker);
-                    batchRouteLayerRef.current.push(marker);
-                    group.push(marker);
-                });
-                queuedOverlayMapRef.current.set(riderIdx, group);
-            });
-            try { localStorage.setItem('last_queued_routes', JSON.stringify(routes)); } catch {}
-        });
+        
 
         // 单骑手彩线（派送开始后用于队列推进）
         socketRef.current.on('rider_route_planned', (data: { riderIndex: number; route: any[] }) => {
@@ -566,24 +484,7 @@ const DeliveryMap: React.FC = () => {
             });
             riderOverlayMapRef.current.set(riderIdx, group);
 
-            // 清理该骑手的排队虚线
-            const qGroup = queuedOverlayMapRef.current.get(riderIdx);
-            if (qGroup) {
-                qGroup.forEach(ov => map.remove(ov));
-                batchRouteLayerRef.current = batchRouteLayerRef.current.filter(ov => !qGroup.includes(ov));
-                queuedOverlayMapRef.current.delete(riderIdx);
-            }
-
-            try {
-                const savedQ = localStorage.getItem('last_queued_routes');
-                if (savedQ) {
-                    const qRoutes = JSON.parse(savedQ);
-                    if (Array.isArray(qRoutes)) {
-                        if (riderIdx in qRoutes) qRoutes[riderIdx] = null;
-                        localStorage.setItem('last_queued_routes', JSON.stringify(qRoutes.filter(Boolean)));
-                    }
-                }
-            } catch {}
+            
         });
     };
 
@@ -742,54 +643,7 @@ const DeliveryMap: React.FC = () => {
                     map.setFitView(batchRouteLayerRef.current, false, [50, 50, 50, 50]);
                 } catch {}
             }
-            const savedQueued = localStorage.getItem('last_queued_routes');
-            if (savedQueued) {
-                try {
-                    const routes = JSON.parse(savedQueued);
-                    const AMap = window.AMap;
-                    const map = mapRef.current;
-                    const baseColor = '#9e9e9e';
-                    routes.forEach((points: any[], riderIdx: number) => {
-                        if (!points || points.length < 2) return;
-                        const group: any[] = [];
-                        for (let i = 0; i < points.length - 1; i++) {
-                            const current = points[i];
-                            const next = points[i+1];
-                            const polyline = new AMap.Polyline({
-                                path: [[current.lng, current.lat], [next.lng, next.lat]],
-                                strokeColor: baseColor,
-                                strokeWeight: 4,
-                                strokeStyle: "dashed",
-                                zIndex: 150
-                            });
-                            map.add(polyline);
-                            batchRouteLayerRef.current.push(polyline);
-                            group.push(polyline);
-                        }
-                        points.forEach((p: any) => {
-                            if (p.type === 'station') return;
-                            const content = `
-                                <div style="
-                                    background-color: ${baseColor};
-                                    color: white;
-                                    width: 22px; height: 22px;
-                                    border-radius: 50%;
-                                    text-align: center; line-height: 22px;
-                                    font-weight: bold;
-                                    border: 2px solid white;
-                                    box-shadow: 0 2px 6px rgba(0,0,0,0.2);
-                                    font-family: Arial;
-                                ">${p.sequence}</div>
-                            `;
-                            const marker = new AMap.Marker({ position: [p.lng, p.lat], content, offset: new AMap.Pixel(-11, -26), zIndex: 160 });
-                            map.add(marker);
-                            batchRouteLayerRef.current.push(marker);
-                            group.push(marker);
-                        });
-                        queuedOverlayMapRef.current.set(riderIdx, group);
-                    });
-                } catch {}
-            }
+            
         }).catch((e) => {
             console.error('Map loading failed', e);
         });

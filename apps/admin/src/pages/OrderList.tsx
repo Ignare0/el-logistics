@@ -453,19 +453,29 @@ const OrderList: React.FC = () => {
 
     return (
         <>
-            <Card
-                title="📦 物流控制台"
-                extra={
-                    <Space>
-                        <Button type="primary" onClick={() => setIsModalVisible(true)}>
-                            创建订单
-                        </Button>
-                        <Button onClick={loadData} loading={loading}>刷新数据</Button>
-                    </Space>
-                }
-                bordered={false}
-                className="shadow-sm"
-            >
+                <Card
+                    title="📦 物流控制台"
+                    extra={
+                        <Space>
+                            <Button type="primary" onClick={() => setIsModalVisible(true)}>
+                                创建订单
+                            </Button>
+                            <Button onClick={loadData} loading={loading}>刷新数据</Button>
+                            <Button onClick={() => {
+                                try {
+                                    const nextState = { pagination: { current: 1, pageSize: savedPagination.pageSize || 10 }, filters: {}, sorter: {} };
+                                    localStorage.setItem(STORAGE_KEY, JSON.stringify(nextState));
+                                } catch {}
+                                setSavedFilters({});
+                                setSavedSorter({});
+                                setSavedPagination({ current: 1, pageSize: savedPagination.pageSize || 10 });
+                                message.success('已清空筛选条件');
+                            }}>清空筛选</Button>
+                        </Space>
+                    }
+                    bordered={false}
+                    className="shadow-sm"
+                >
                 <Table
                     dataSource={orders}
                     columns={columns}
