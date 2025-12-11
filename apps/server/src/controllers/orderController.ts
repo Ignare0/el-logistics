@@ -2,7 +2,7 @@ import { Request, Response } from 'express';
 import { error, success } from '../utils/response';
 import { OrderStatus, TimelineEvent } from '@el/types';
 import { ServerOrder } from '../types/internal';
-import { startSimulation, startBatchSimulation, stopSimulation, queryEvents } from "../utils/simulator";
+import { startSimulation, startBatchSimulation, stopSimulation, queryEvents, getRiderPool } from "../utils/simulator";
 import { planLogisticsRoute } from '../services/logisticsService';
 import { optimizeBatchRoute, distributeOrders } from '../utils/routeOptimizer';
 import { NODES } from '../mock/nodes';
@@ -502,4 +502,14 @@ export const getEventLogs = (req: Request, res: Response) => {
     const limit = Number(req.query.limit || 50);
     const logs = queryEvents(limit);
     res.json(success(logs));
+};
+
+// --- 10. [新增] 获取骑手池状态 ---
+export const getRiders = (req: Request, res: Response) => {
+    try {
+        const pool = getRiderPool();
+        res.json(success(pool));
+    } catch (e) {
+        res.status(500).json(error('获取骑手池失败'));
+    }
 };

@@ -5,7 +5,7 @@ import cors from 'cors';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
 import orderRoutes from "./routes/orderRoutes";
-import { getEventLogs } from './controllers/orderController';
+import { getEventLogs, getRiders } from './controllers/orderController';
 import { getSelectableNodes } from './controllers/nodeController'
 import { merchants } from './mock/merchants';
 import { success } from './utils/response';
@@ -48,6 +48,7 @@ app.set('socketio', io);
 app.use('/api/orders', orderRoutes);
 app.get('/api/nodes/selectable', getSelectableNodes);
 app.get('/api/logs/events', getEventLogs);
+app.get('/api/riders', getRiders);
 // 新增：获取商家列表
 app.get('/api/merchants', (req, res) => {
     res.json(success(merchants));

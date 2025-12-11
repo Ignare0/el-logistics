@@ -2,7 +2,7 @@ import React, { useEffect, useState, useRef, useMemo } from 'react';
 import { Card, Row, Col, Statistic, List, Tag, Badge, Typography } from 'antd';
 import ReactECharts from 'echarts-for-react';
 import { Order, OrderStatus, PositionUpdatePayload } from '@el/types';
-import { fetchOrders } from '../services/orderService';
+import { fetchOrders, fetchRiders } from '../services/orderService';
 import { 
     ClockCircleOutlined, 
     UserOutlined, 
@@ -19,6 +19,7 @@ const Dashboard: React.FC = () => {
     const [orders, setOrders] = useState<Order[]>([]);
     const socketRef = useRef<Socket | null>(null);
     const { currentMerchant } = useMerchant();
+    const [riderPool, setRiderPool] = useState<{ maxRiders: number; perRiderMaxOrders: number; riders: { id: number; status: 'idle'|'busy'|'returning'|'offline'; activeOrderIds: string[] }[] }>({ maxRiders: 5, perRiderMaxOrders: 2, riders: [] });
     type ExtraEvent = { type: 'success' | 'info' | 'warning', text: string, id: string };
     const [extraEvents, setExtraEvents] = useState<ExtraEvent[]>([]);
     const returningSetRef = useRef<Set<number>>(new Set());
@@ -54,8 +55,20 @@ const Dashboard: React.FC = () => {
         const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:4000';
         socketRef.current = io(apiUrl);
 
-        socketRef.current.on('connect', () => {
+        socketRef.current.on('connect', async () => {
             console.log('✅ Dashboard Connected to Socket');
+            try {
+                const res = await fetchRiders();
+                if (res && (res as any).data) setRiderPool((res as any).data);
+            } catch {}
+        });
+
+        socketRef.current.on('rider_status', (payload: any) => {
+            if (payload && payload.riders) {
+                setRiderPool(payload);
+            } else if (payload && payload.data && payload.data.riders) {
+                setRiderPool(payload.data);
+            }
         });
 
         socketRef.current.on('position_update', (data: PositionUpdatePayload) => {
@@ -149,19 +162,11 @@ const Dashboard: React.FC = () => {
 
     // --- Data Processing ---
     
-    // 1. Dynamic Rider Status
-    // Infer busy riders from shipping orders
-    const shippingOrders = orders.filter(o => o.status === OrderStatus.SHIPPING);
-    const busyRidersCount = shippingOrders.length; 
-    
-    // Returning riders
-    const returningOrders = orders.filter(o => o.isReturning);
-    const returningRidersCount = returningOrders.length;
-
-    // Mock total pool size (e.g. 10 base + any extras)
-    const totalRidersCap = 10;
-    const totalRiders = Math.min(totalRidersCap, busyRidersCount + returningRidersCount + 2);
-    const idleRiders = Math.max(0, totalRiders - busyRidersCount - returningRidersCount);
+    // 1. Rider Pool 统计
+    const totalRiders = riderPool.maxRiders || 5;
+    const busyRidersCount = riderPool.riders.filter(r => r.status === 'busy').length;
+    const returningRidersCount = riderPool.riders.filter(r => r.status === 'returning').length;
+    const idleRiders = riderPool.riders.filter(r => r.status === 'idle').length;
     
     // 2. Core Metrics
     const pendingOrders = orders.filter(o => o.status === OrderStatus.PENDING).length;
@@ -295,7 +300,7 @@ const Dashboard: React.FC = () => {
                 </Col>
                 <Col span={5}>
                     <Card bordered={false} hoverable>
-                        <Statistic title="在线骑手" value={totalRiders} prefix={<UserOutlined />} suffix={`(空闲 ${idleRiders})`} />
+                        <Statistic title="在线骑手" value={riderPool.riders.filter(r => r.status !== 'offline').length || 0} prefix={<UserOutlined />} suffix={`(空闲 ${idleRiders})`} />
                     </Card>
                 </Col>
                 <Col span={5}>

@@ -59,3 +59,13 @@ export const cancelOrder = async (orderId: string): Promise<ApiResponse<Order>> 
 export const fetchEventLogs = async (limit: number = 50): Promise<ApiResponse<any[]>> => {
     return request.get<ApiResponse<any[]>, ApiResponse<any[]>>(`/logs/events`, { params: { limit } });
 };
+
+// 获取骑手池状态
+export interface RiderPoolRes {
+    code?: number;
+    data: { maxRiders: number; perRiderMaxOrders: number; riders: { id: number; status: 'idle'|'busy'|'returning'|'offline'; activeOrderIds: string[] }[] };
+    msg?: string;
+}
+export const fetchRiders = async (): Promise<RiderPoolRes> => {
+    return request.get<RiderPoolRes, RiderPoolRes>(`/riders`);
+};

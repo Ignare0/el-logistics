@@ -20,6 +20,30 @@ const recordEvent = (entry: EventLogEntry) => {
 };
 export const queryEvents = (limit: number = 50) => eventLog.slice(0, Math.max(0, Math.min(limit, EVENT_LOG_MAX)));
 
+// ==========================================
+// Rider Pool（站点骑手池，内存版）
+// ==========================================
+
+type RiderStatus = 'idle' | 'busy' | 'returning' | 'offline';
+type Rider = { id: number; status: RiderStatus; activeOrderIds: string[] };
+
+const STATION_MAX_RIDERS = Number(process.env.STATION_MAX_RIDERS || 5);
+const RIDER_MAX_ORDERS = Number(process.env.RIDER_MAX_ORDERS || 2);
+
+const riders: Rider[] = Array.from({ length: STATION_MAX_RIDERS }, (_, i) => ({ id: i, status: 'idle', activeOrderIds: [] }));
+
+const setRiderBusy = (idx: number, orderIds: string[]) => {
+    if (riders[idx]) { riders[idx].status = 'busy'; riders[idx].activeOrderIds = orderIds.slice(0, RIDER_MAX_ORDERS); }
+};
+const setRiderReturning = (idx: number) => { if (riders[idx]) { riders[idx].status = 'returning'; riders[idx].activeOrderIds = []; } };
+const setRiderIdle = (idx: number) => { if (riders[idx]) { riders[idx].status = 'idle'; riders[idx].activeOrderIds = []; } };
+
+export const getRiderPool = () => ({ maxRiders: STATION_MAX_RIDERS, perRiderMaxOrders: RIDER_MAX_ORDERS, riders: riders.map(r => ({ ...r })) });
+
+const emitRiderStatus = (io: Server) => {
+    try { io.emit('rider_status', getRiderPool()); } catch {}
+};
+
 /**
  * 停止模拟
  */
@@ -352,6 +376,10 @@ export const startBatchSimulation = async (io: Server, orders: ServerOrder[], st
     orders.forEach(o => activeTimers.set(o.id, true));
 
     try {
+        if (typeof riderIndex === 'number') {
+            setRiderBusy(riderIndex, orders.map(o => o.id));
+            emitRiderStatus(io);
+        }
         let currentNode = stationNode;
 
         // 遍历每个订单作为目的地
@@ -489,6 +517,7 @@ export const startBatchSimulation = async (io: Server, orders: ServerOrder[], st
                     recordEvent({ kind: 'position', status: 'returning', riderIndex, ts: now, text: `骑手 ${Number(riderIndex ?? 0) + 1} 正在返回站点` });
                 }
                     });
+                    if (typeof riderIndex === 'number') { setRiderReturning(riderIndex); emitRiderStatus(io); }
 
                     await wait(100);
                 }
@@ -531,6 +560,7 @@ export const startBatchSimulation = async (io: Server, orders: ServerOrder[], st
                 // 仅广播一次无订单ID的事件，防止重复触发
                 io.emit('position_update', idlePayload);
                 recordEvent({ kind: 'position', status: 'rider_idle', riderIndex, ts: idlePayload.timestamp!, text: `骑手 ${Number(riderIndex ?? 0) + 1} 已回站` });
+                if (typeof riderIndex === 'number') { setRiderIdle(riderIndex); emitRiderStatus(io); }
 
                 console.log(`🏁 骑手已安全返回站点`);
             }
