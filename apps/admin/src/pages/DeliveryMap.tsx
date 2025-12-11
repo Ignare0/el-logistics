@@ -218,9 +218,10 @@ const DeliveryMap: React.FC = () => {
                     const removedIdx = new Set<number>();
                     logs.forEach((e: any) => {
                         if (e.kind === 'position' && e.status === 'rider_idle' && typeof e.riderIndex === 'number') {
-                            const overlays = riderOverlayMapRef.current.get(e.riderIndex);
-                            if (overlays && mapRef.current) {
-                                overlays.forEach(ov => mapRef.current.remove(ov));
+                            const group = riderOverlayMapRef.current.get(e.riderIndex);
+                            if (group && mapRef.current) {
+                                group.forEach(ov => mapRef.current.remove(ov));
+                                batchRouteLayerRef.current = batchRouteLayerRef.current.filter(ov => !group.includes(ov));
                             }
                             riderOverlayMapRef.current.delete(e.riderIndex);
                             removedIdx.add(Number(e.riderIndex));
@@ -308,30 +309,31 @@ const DeliveryMap: React.FC = () => {
             // 当某位骑手回站时，清理其对应的路线与序号圆点
             if (data.status === 'rider_idle' && typeof data.riderIndex === 'number') {
                 appendDashboardEvent('success', `批次完成：骑手 ${Number(data.riderIndex) + 1} 已回站`);
-                const overlays = riderOverlayMapRef.current.get(data.riderIndex);
-                if (overlays && mapRef.current) {
-                    overlays.forEach(ov => mapRef.current.remove(ov));
+                const group = riderOverlayMapRef.current.get(data.riderIndex);
+                if (group && mapRef.current) {
+                    group.forEach(ov => mapRef.current.remove(ov));
+                    batchRouteLayerRef.current = batchRouteLayerRef.current.filter(ov => !group.includes(ov));
                 }
                 riderOverlayMapRef.current.delete(data.riderIndex);
 
-                // 同步本地存储，移除该骑手的规划路径
                 try {
                     const saved = localStorage.getItem('last_multi_routes');
                     if (saved) {
                         const routes = JSON.parse(saved);
-                        routes.splice(data.riderIndex, 1);
-                        localStorage.setItem('last_multi_routes', JSON.stringify(routes));
+                        if (Array.isArray(routes)) {
+                            if (data.riderIndex in routes) routes[data.riderIndex] = null;
+                            const filtered = routes.filter(Boolean);
+                            localStorage.setItem('last_multi_routes', JSON.stringify(filtered));
+                        }
                     }
                 } catch {}
 
-                // 清除所有骑手标记（批次清理）
                 if (mapRef.current) {
                     markerMapRef.current.forEach((marker) => {
                         try { marker.setMap(null); } catch {}
                     });
                     markerMapRef.current.clear();
                 }
-                // 清空返程标志，触发标记刷新
                 setOrders(prev => prev.map(o => ({ ...o, isReturning: false })));
             }
 
