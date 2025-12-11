@@ -106,7 +106,7 @@ export const dispatchBatchOrders = (req: Request, res: Response) => {
         allRoutePoints.push(batchPoints);
 
         // 异步启动该骑手的模拟任务
-        startBatchSimulation(io, batchOrders, stationNode);
+        startBatchSimulation(io, batchOrders, stationNode, riderIdx);
     });
 
     // --- 推送可视化路径给前端 ---

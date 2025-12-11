@@ -19,6 +19,8 @@ const Dashboard: React.FC = () => {
     const [orders, setOrders] = useState<Order[]>([]);
     const socketRef = useRef<Socket | null>(null);
     const { currentMerchant } = useMerchant();
+    type ExtraEvent = { type: 'success' | 'info' | 'warning', text: string, id: string };
+    const [extraEvents, setExtraEvents] = useState<ExtraEvent[]>([]);
     
     const loadData = async () => {
         if (!currentMerchant) return;
@@ -69,6 +71,12 @@ const Dashboard: React.FC = () => {
 
             if (data.status === 'delivered') {
                 loadData();
+            }
+
+            if (data.status === 'rider_idle' && typeof (data as any).riderIndex !== 'undefined') {
+                const idx = Number((data as any).riderIndex);
+                const ev: ExtraEvent = { type: 'success', text: `批次完成：骑手 ${idx + 1} 已回站`, id: `rider_idle_${idx}_${Date.now()}` };
+                setExtraEvents((prev: ExtraEvent[]) => [ev, ...prev].slice(0, 50));
             }
         });
 
@@ -132,8 +140,8 @@ const Dashboard: React.FC = () => {
         if (maxWaitTime > 30) list.push({ type: 'timeout', text: `积压严重！最长等待已超 ${maxWaitTime} 分钟`, id: 'alert' });
         // Add recent delivered
         orders.filter(o => o.status === OrderStatus.DELIVERED).slice(0, 3).forEach(o => list.push({ type: 'success', text: `订单 ${o.id} 已准时送达`, id: o.id }));
-        return list;
-    }, [orders, maxWaitTime]);
+        return [...extraEvents, ...list];
+    }, [orders, maxWaitTime, extraEvents]);
 
     // --- Chart Options ---
 

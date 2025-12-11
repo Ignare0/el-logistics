@@ -23,6 +23,7 @@ const DeliveryMap: React.FC = () => {
     const markersRef = useRef<any[]>([]); // ✅ Added missing markersRef for order markers
     
     const batchRouteLayerRef = useRef<any[]>([]); 
+    const riderOverlayMapRef = useRef<Map<number, any[]>>(new Map());
 
     const stationMarkerRef = useRef<any>(null);
     const socketRef = useRef<Socket | null>(null);
@@ -227,6 +228,25 @@ const DeliveryMap: React.FC = () => {
                 // Refresh data to ensure consistency
                 loadOrders();
             }
+
+            // 当某位骑手回站时，清理其对应的路线与序号圆点
+            if (data.status === 'rider_idle' && typeof data.riderIndex === 'number') {
+                const overlays = riderOverlayMapRef.current.get(data.riderIndex);
+                if (overlays && mapRef.current) {
+                    overlays.forEach(ov => mapRef.current.remove(ov));
+                }
+                riderOverlayMapRef.current.delete(data.riderIndex);
+
+                // 同步本地存储，移除该骑手的规划路径
+                try {
+                    const saved = localStorage.getItem('last_multi_routes');
+                    if (saved) {
+                        const routes = JSON.parse(saved);
+                        routes.splice(data.riderIndex, 1);
+                        localStorage.setItem('last_multi_routes', JSON.stringify(routes));
+                    }
+                } catch {}
+            }
         });
 
         // ✅ 监听批量路径规划结果并绘制
@@ -237,6 +257,7 @@ const DeliveryMap: React.FC = () => {
 
             batchRouteLayerRef.current.forEach(overlay => map.remove(overlay));
             batchRouteLayerRef.current = [];
+            riderOverlayMapRef.current.clear();
 
             const routes = data.routes;
             if (!routes || routes.length === 0) return;
@@ -246,6 +267,7 @@ const DeliveryMap: React.FC = () => {
             routes.forEach((points, riderIdx) => {
                 if (!points || points.length < 2) return;
                 const baseColor = riderColors[riderIdx % riderColors.length];
+                const group: any[] = [];
 
                 for (let i = 0; i < points.length - 1; i++) {
                     const current = points[i];
@@ -262,6 +284,7 @@ const DeliveryMap: React.FC = () => {
                     });
                     map.add(polyline);
                     batchRouteLayerRef.current.push(polyline);
+                    group.push(polyline);
                 }
 
                 points.forEach((p: any) => {
@@ -287,7 +310,10 @@ const DeliveryMap: React.FC = () => {
                     });
                     map.add(marker);
                     batchRouteLayerRef.current.push(marker);
+                    group.push(marker);
                 });
+
+                riderOverlayMapRef.current.set(riderIdx, group);
             });
 
             map.setFitView(batchRouteLayerRef.current, false, [50, 50, 50, 50]);

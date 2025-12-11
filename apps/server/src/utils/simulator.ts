@@ -331,7 +331,7 @@ export const startSimulation = async (io: Server, order: ServerOrder, startIndex
 /**
  * 批量订单模拟 (同一骑手配送多单)
  */
-export const startBatchSimulation = async (io: Server, orders: ServerOrder[], stationNode: LogisticsNode) => {
+export const startBatchSimulation = async (io: Server, orders: ServerOrder[], stationNode: LogisticsNode, riderIndex?: number) => {
     // 1. 简单的路径规划：Station -> Order 1 -> Order 2 ...
     // 这里不做复杂的 TSP，直接按数组顺序送
     const batchId = `BATCH_${Date.now()}`;
@@ -454,15 +454,16 @@ export const startBatchSimulation = async (io: Server, orders: ServerOrder[], st
                     const [lng, lat] = returnRoutePoints[j];
                     const now = new Date().toISOString();
 
-                    const payload: PositionUpdatePayload = {
-                        orderId: '', // Returning, no specific order
-                        lat, lng,
-                        transport: 'DELIVERY',
-                        status: 'returning',
-                        statusText: `所有订单派送完毕，骑手正在返回站点`,
-                        speed: 100,
-                        timestamp: now
-                    };
+                const payload: PositionUpdatePayload = {
+                    orderId: '', // Returning, no specific order
+                    lat, lng,
+                    transport: 'DELIVERY',
+                    status: 'returning',
+                    statusText: `所有订单派送完毕，骑手正在返回站点`,
+                    speed: 100,
+                    timestamp: now,
+                    riderIndex
+                };
 
                     // Broadcast to all orders in this batch so users see the rider returning
                     orders.forEach(o => {
@@ -486,7 +487,8 @@ export const startBatchSimulation = async (io: Server, orders: ServerOrder[], st
                         status: 'returning',
                         statusText: `所有订单派送完毕，骑手正在返回站点`,
                         speed: 100,
-                        timestamp: now
+                        timestamp: now,
+                        riderIndex
                     };
                     orders.forEach(o => {
                         if (o.status !== OrderStatus.COMPLETED && (o.status as any) !== 'cancelled') {
@@ -505,9 +507,12 @@ export const startBatchSimulation = async (io: Server, orders: ServerOrder[], st
                     lng: stationNode.location.lng,
                     status: 'rider_idle',
                     statusText: `骑手已回站`,
-                    timestamp: new Date().toISOString()
+                    timestamp: new Date().toISOString(),
+                    riderIndex
                 };
-                
+                // 广播一次无订单ID的事件，确保前端能清理覆盖物（即使所有订单已经完成）
+                io.emit('position_update', idlePayload);
+                // 同步给相关订单（若仍未完成）
                 orders.forEach(o => {
                     if (o.status !== OrderStatus.COMPLETED && (o.status as any) !== 'cancelled') {
                          const p = { ...idlePayload, orderId: o.id };

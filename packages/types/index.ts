@@ -114,6 +114,7 @@ export interface PositionUpdatePayload {
     speed?: number;
     resetView?: boolean;
     timestamp?: string;
+    riderIndex?: number;
 }
 
 export interface WarehouseStock {
